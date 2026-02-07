@@ -20,40 +20,41 @@ class SalesDoctorAPI {
             login: 'admin',
             password: '1234567rafiq',
             userId: 'd0_67',
-    token: '4415b6af76b4ccc48f7f1120c917368c'
+            token: '4415b6af76b4ccc48f7f1120c917368c'
         };
     }
 
-    init() {
-        // Safety timeout - 10 sekund ichida loading yashiriladi
-        setTimeout(() => {
-            this.hideLoading();
-            console.log('⏰ Loading timeout - forcefully hidden');
-        }, 10000);
+    saveConfig(config) {
+        this.config = { ...this.config, ...config };
+        localStorage.setItem('sd_api_config', JSON.stringify(this.config));
+    }
+
+    isConfigured() {
+        return this.config.serverUrl && this.config.userId && this.config.token;
+    }
+
+    hasCredentials() {
+        return this.config.serverUrl && this.config.login && this.config.password;
+    }
+
+    // Login to get userId and token (via proxy)
+    async login(login, password, serverUrl) {
+        const server = serverUrl.replace(/^https?:\/\//, '').replace(/\/$/, '');
 
         try {
-            this.setupTheme();
-            this.setupEventListeners();
+            // Proxy server orqali so'rov yuborish
+            const response = await fetch('https://sd-analitika-production.up.railway.app/api/login', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    serverUrl: server,
+                    login: login,
+                    password: password
+                })
+            });
 
-            // api.js da default credentials mavjud - avtomatik yuklash
-            if (this.api.isConfigured()) {
-                console.log('✅ API konfiguratsiya topildi - Dashboard yuklanmoqda...');
-                this.loadDashboard().catch(error => {
-                    console.error('❌ Dashboard yuklash xatosi:', error);
-                    this.hideLoading();
-                    this.showEmptyStats();
-                });
-            } else {
-                console.log('⚠️ API sozlanmagan');
-                this.hideLoading();
-                this.showEmptyStats();
-            }
-        } catch (error) {
-            console.error('❌ Init xatosi:', error);
-            this.hideLoading();
-            this.showEmptyStats();
-        }
-    }
             if (!response.ok) {
                 throw new Error(`Server xatosi: ${response.status}`);
             }
@@ -433,5 +434,3 @@ class DemoDataGenerator {
 // Export for use
 window.SalesDoctorAPI = SalesDoctorAPI;
 window.DemoDataGenerator = DemoDataGenerator;
-
-
