@@ -43,7 +43,7 @@ class SalesDoctorAPI {
 
         try {
             // Proxy server orqali so'rov yuborish
-            const response = await fetch('/api/login', {
+            const response = await fetch('https://sd-analitika-production.up.railway.app/api/login', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
@@ -106,7 +106,7 @@ class SalesDoctorAPI {
         };
 
         try {
-            const response = await fetch('/api/proxy', {
+            const response = await fetch('https://sd-analitika-production.up.railway.app/api/proxy', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
