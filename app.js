@@ -8,7 +8,7 @@ class SalesDoctorApp {
         this.api = new SalesDoctorAPI();
         this.charts = {};
         this.currentPeriod = 'today';
-        this.useRealData = false; // API ulanganda true bo'ladi
+   this.useRealData = true; // API avtomatik yoqilgan
         this.cachedCostPrices = null; // Har safar yangi ma'lumot olish uchun
 
 
@@ -25,35 +25,33 @@ class SalesDoctorApp {
     }
 
     init() {
-        // Safety timeout - 3 sekund ichida loading yashiriladi
         setTimeout(() => {
             this.hideLoading();
             console.log('⏰ Loading timeout - forcefully hidden');
-        }, 3000);
+        }, 10000);
 
         try {
             this.setupTheme();
             this.setupEventListeners();
 
-            // LocalStorage da credentials bormi tekshiramiz
-            const hasApiUrl = localStorage.getItem('sd_api_url');
-            const hasUsername = localStorage.getItem('sd_api_username');
-            const hasPassword = localStorage.getItem('sd_api_password');
-
-            if (hasApiUrl && hasUsername && hasPassword) {
-                // API sozlangan - ma'lumot ko'rsatamiz
-                console.log('✅ API sozlangan!');
+            if (this.api.isConfigured()) {
+                console.log('✅ API konfiguratsiya topildi - Dashboard yuklanmoqda...');
+                this.loadDashboard().catch(error => {
+                    console.error('❌ Dashboard yuklash xatosi:', error);
+                    this.hideLoading();
+                    this.showEmptyStats();
+                });
+            } else {
+                console.log('⚠️ API sozlanmagan');
                 this.hideLoading();
                 this.showEmptyStats();
-                return;
             }
-
-            // API sozlanmagan - faqat prompt
-            console.log('⚠️ API sozlanmagan - faqat prompt rejimi');
+        } catch (error) {
+            console.error('❌ Init xatosi:', error);
             this.hideLoading();
             this.showEmptyStats();
-
-            // Simple prompt for API config
+        }
+    }
             setTimeout(() => {
                 const configure = confirm('API sozlanmagan! API ni sozlaysizmi?');
                 if (configure) {
@@ -4258,3 +4256,4 @@ class SalesDoctorApp {
 document.addEventListener('DOMContentLoaded', () => {
     window.app = new SalesDoctorApp();
 });
+
