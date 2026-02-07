@@ -35,35 +35,42 @@ class SalesDoctorApp {
             this.setupTheme();
             this.setupEventListeners();
 
-            // API ulangan bo'lsa, real datadan foydalanish
-            if (this.api.isConfigured()) {
-                this.useRealData = true;
-                this.loadDashboard();
-            } else {
-                // API sozlanmagan - prompt bilan so'rash
-                console.log('⚠️ API sozlanmagan');
+            // LocalStorage da credentials bormi tekshiramiz
+            const hasApiUrl = localStorage.getItem('sd_api_url');
+            const hasUsername = localStorage.getItem('sd_api_username');
+            const hasPassword = localStorage.getItem('sd_api_password');
+
+            if (hasApiUrl && hasUsername && hasPassword) {
+                // API sozlangan - ma'lumot ko'rsatamiz
+                console.log('✅ API sozlangan!');
                 this.hideLoading();
                 this.showEmptyStats();
-
-                // Simple prompt for API config
-                setTimeout(() => {
-                    const configure = confirm('API sozlanmagan! API ni sozlaysizmi?');
-                    if (configure) {
-                        const apiUrl = prompt('API URL:', 'https://rafia.salesdoc.io');
-                        const username = prompt('Username:');
-                        const password = prompt('Password:');
-
-                        if (apiUrl && username && password) {
-                            localStorage.setItem('sd_api_url', apiUrl);
-                            localStorage.setItem('sd_api_username', username);
-                            localStorage.setItem('sd_api_password', password);
-
-                            alert('API sozlandi! Sahifa yangilanmoqda...');
-                            location.reload();
-                        }
-                    }
-                }, 1000);
+                return;
             }
+
+            // API sozlanmagan - faqat prompt
+            console.log('⚠️ API sozlanmagan - faqat prompt rejimi');
+            this.hideLoading();
+            this.showEmptyStats();
+
+            // Simple prompt for API config
+            setTimeout(() => {
+                const configure = confirm('API sozlanmagan! API ni sozlaysizmi?');
+                if (configure) {
+                    const apiUrl = prompt('API URL:', 'https://rafia.salesdoc.io');
+                    const username = prompt('Username:');
+                    const password = prompt('Password:');
+
+                    if (apiUrl && username && password) {
+                        localStorage.setItem('sd_api_url', apiUrl);
+                        localStorage.setItem('sd_api_username', username);
+                        localStorage.setItem('sd_api_password', password);
+
+                        alert('API sozlandi! Sahifa yangilanmoqda...');
+                        location.reload();
+                    }
+                }
+            }, 1000);
         } catch (error) {
             console.error('❌ Init xatosi:', error);
             this.hideLoading();
