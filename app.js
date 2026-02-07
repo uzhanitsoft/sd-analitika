@@ -33,10 +33,28 @@ class SalesDoctorApp {
             this.useRealData = true;
             this.loadDashboard();
         } else {
-            // API sozlanmagan - modal ochish
+            // API sozlanmagan - loading yashirish va modal ochish
             console.log('⚠️ API sozlanmagan - login modal ochilmoqda...');
-            setTimeout(() => this.openConfigModal(), 500);
+            this.hideLoading();
+
+            // Statistika kartalarini 0 bilan ko'rsatish
+            this.showEmptyStats();
+
+            // Modal ochish
+            setTimeout(() => {
+                this.openConfigModal();
+            }, 500);
         }
+    }
+
+    // Bo'sh statistika ko'rsatish
+    showEmptyStats() {
+        document.getElementById('totalSalesUZS').textContent = '0';
+        document.getElementById('totalSalesUSD').textContent = '0';
+        document.getElementById('totalOrders').textContent = '0';
+        document.getElementById('totalClientsOKB').textContent = '0';
+        document.getElementById('totalClientsAKB').textContent = '0';
+        document.getElementById('totalProducts').textContent = '0';
     }
 
     // Theme Management
