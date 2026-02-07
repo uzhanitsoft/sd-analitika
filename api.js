@@ -20,7 +20,7 @@ class SalesDoctorAPI {
             login: 'admin',
             password: '1234567rafiq',
             userId: 'd0_67',
-            token: '1a604a150da9506772e7b6346624b00b'
+    token: '4415b6af76b4ccc48f7f1120c917368c'
         };
     }
 
@@ -434,3 +434,4 @@ class DemoDataGenerator {
 // Export for use
 window.SalesDoctorAPI = SalesDoctorAPI;
 window.DemoDataGenerator = DemoDataGenerator;
+
