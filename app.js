@@ -1279,6 +1279,24 @@ class SalesDoctorApp {
         try {
             const allOrders = this.cachedOrders || [];
 
+            // Agent nomlarini API dan olish (bir marta)
+            if (!this.cachedAgentNames) {
+                try {
+                    const agentResp = await this.api.request('getAgent', { limit: 100 });
+                    const agents = agentResp?.result?.agent || [];
+                    this.cachedAgentNames = {};
+                    agents.forEach(a => {
+                        if (a.SD_id && a.name) {
+                            this.cachedAgentNames[a.SD_id] = a.name;
+                        }
+                    });
+                    console.log(`✅ ${agents.length} ta agent nomi yuklandi`);
+                } catch (e) {
+                    console.error('Agent nomlarini yuklash xatosi:', e);
+                    this.cachedAgentNames = {};
+                }
+            }
+
             // Tanlangan davr bo'yicha filtrlash (API filter ishlamaydi!)
             const { startDate, endDate } = this.getDateRange();
             const orders = allOrders.filter(order => {
@@ -1384,9 +1402,12 @@ class SalesDoctorApp {
                 const agentStats = {};
                 orders.forEach(order => {
                     const agentId = order.agent?.SD_id || 'unknown';
-                    // MUHIM: Avval API dan nomni olish, keyin mappingdan
-                    const apiName = order.agent?.name || '';
-                    const agentName = apiName || agentNames[agentId] || `Agent ${agentId.replace('d0_', '')}`;
+                    // MUHIM: Avval cachedAgentNames (API dan), keyin order.agent.name, keyin mapping
+                    const cachedName = this.cachedAgentNames?.[agentId];
+                    const orderAgentName = order.agent?.name || '';
+                    const mappedName = agentNames[agentId];
+                    const agentName = cachedName || orderAgentName || mappedName || `Agent ${agentId.replace('d0_', '')}`;
+
                     const clientId = order.client?.SD_id || 'unknown';
                     const summa = this.getSummaInUZS(parseFloat(order.totalSumma) || 0);
 
@@ -1394,27 +1415,33 @@ class SalesDoctorApp {
                     // item.summa dollarda, tan narxlar ham dollarda
                     let orderProfit = 0;
                     const USD_RATE = this.getUsdRate();
-                    (order.orderProducts || []).forEach(item => {
-                        const productId = item.product?.SD_id;
-                        const quantity = parseFloat(item.quantity) || 0;
-                        const rawSumma = parseFloat(item.summa) || 0;
-                        // Valyutani aniqlash: > 100 = UZS, <= 1000 = USD
-                        const itemSummaUZS = rawSumma > 100 ? rawSumma : rawSumma * USD_RATE;
+                    const orderProducts = order.orderProducts || [];
 
-                        const costData = costPrices[productId];
-                        // costPriceUZS allaqachon to'g'ri valyutada
-                        const costPriceUZS = costData?.costPriceUZS || 0;
+                    if (orderProducts.length > 0) {
+                        orderProducts.forEach(item => {
+                            const productId = item.product?.SD_id;
+                            const quantity = parseFloat(item.quantity) || 0;
+                            const rawSumma = parseFloat(item.summa) || 0;
+                            // Valyutani aniqlash: > 100 = UZS, <= 100 = USD
+                            const itemSummaUZS = rawSumma > 100 ? rawSumma : rawSumma * USD_RATE;
 
-                        if (costPriceUZS <= 0) {
-                            // Tan narx yo'q (bonus) - butun summa foyda
-                            orderProfit += itemSummaUZS;
-                        } else {
-                            // Foyda = Sotish narxi - Tan narx * soni
-                            const totalCost = costPriceUZS * quantity;
-                            const itemProfit = itemSummaUZS - totalCost;
-                            orderProfit += Math.max(0, itemProfit);
-                        }
-                    });
+                            const costData = costPrices[productId];
+                            const costPriceUZS = costData?.costPriceUZS || 0;
+
+                            if (costPriceUZS <= 0) {
+                                // Tan narx yo'q (bonus) - butun summa foyda
+                                orderProfit += itemSummaUZS;
+                            } else {
+                                // Foyda = Sotish narxi - Tan narx * soni
+                                const totalCost = costPriceUZS * quantity;
+                                const itemProfit = itemSummaUZS - totalCost;
+                                orderProfit += Math.max(0, itemProfit);
+                            }
+                        });
+                    } else {
+                        // orderProducts yo'q - 15% taxminiy foyda
+                        orderProfit = summa * 0.15;
+                    }
 
                     if (agentId !== 'unknown') {
                         if (!agentStats[agentId]) {
