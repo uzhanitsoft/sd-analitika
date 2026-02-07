@@ -1,0 +1,363 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   QARZDORLIK PREMIUM SECTION - Modern Glassmorphism Design
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.debt-premium-section {
+    margin: 32px 0;
+    padding: 0;
+}
+
+/* Header */
+.debt-premium-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 24px;
+    padding: 0 8px;
+}
+
+.premium-title {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.premium-icon {
+    width: 56px;
+    height: 56px;
+    background: linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%);
+    border-radius: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 8px 32px rgba(255, 107, 107, 0.35);
+}
+
+.premium-icon svg {
+    width: 28px;
+    height: 28px;
+    color: white;
+}
+
+.premium-title h2 {
+    margin: 0;
+    font-size: 28px;
+    font-weight: 700;
+    background: linear-gradient(135deg, #ffffff 0%, #a0a0a0 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+.premium-title p {
+    margin: 4px 0 0;
+    font-size: 14px;
+    color: var(--text-secondary);
+}
+
+.premium-title p span {
+    color: #ff6b6b;
+    font-weight: 600;
+}
+
+.premium-date {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 20px;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.premium-date svg {
+    width: 18px;
+    height: 18px;
+    color: var(--text-secondary);
+}
+
+.premium-date span {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+/* Cards Container */
+.debt-cards-container {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 24px;
+}
+
+/* Premium Card Base */
+.debt-premium-card {
+    position: relative;
+    border-radius: 24px;
+    overflow: hidden;
+    min-height: 220px;
+    transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1),
+        box-shadow 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.debt-premium-card:hover {
+    transform: translateY(-8px) scale(1.02);
+}
+
+/* Card Glow Effect */
+.card-glow {
+    position: absolute;
+    top: -50%;
+    left: -50%;
+    width: 200%;
+    height: 200%;
+    opacity: 0;
+    transition: opacity 0.4s;
+    pointer-events: none;
+}
+
+.debt-premium-card:hover .card-glow {
+    opacity: 1;
+}
+
+/* So'm Card Specific */
+.som-card {
+    background: linear-gradient(145deg,
+            rgba(255, 59, 48, 0.15) 0%,
+            rgba(255, 59, 48, 0.05) 50%,
+            rgba(20, 20, 25, 0.9) 100%);
+    border: 1px solid rgba(255, 59, 48, 0.2);
+    box-shadow: 0 4px 30px rgba(255, 59, 48, 0.15),
+        inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.som-card:hover {
+    box-shadow: 0 20px 60px rgba(255, 59, 48, 0.3),
+        0 0 100px rgba(255, 59, 48, 0.15),
+        inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+.som-card .card-glow {
+    background: radial-gradient(circle at 30% 30%,
+            rgba(255, 59, 48, 0.4) 0%,
+            transparent 60%);
+}
+
+/* Dollar Card Specific */
+.dollar-card {
+    background: linear-gradient(145deg,
+            rgba(0, 122, 255, 0.15) 0%,
+            rgba(0, 122, 255, 0.05) 50%,
+            rgba(20, 20, 25, 0.9) 100%);
+    border: 1px solid rgba(0, 122, 255, 0.2);
+    box-shadow: 0 4px 30px rgba(0, 122, 255, 0.15),
+        inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.dollar-card:hover {
+    box-shadow: 0 20px 60px rgba(0, 122, 255, 0.3),
+        0 0 100px rgba(0, 122, 255, 0.15),
+        inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+.dollar-card .card-glow {
+    background: radial-gradient(circle at 30% 30%,
+            rgba(0, 122, 255, 0.4) 0%,
+            transparent 60%);
+}
+
+/* Card Content */
+.card-content {
+    position: relative;
+    z-index: 2;
+    padding: 28px;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+}
+
+.card-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 20px;
+}
+
+.currency-badge {
+    padding: 6px 14px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 1px;
+}
+
+.currency-badge.som {
+    background: rgba(255, 59, 48, 0.2);
+    color: #ff6b6b;
+    border: 1px solid rgba(255, 59, 48, 0.3);
+}
+
+.currency-badge.dollar {
+    background: rgba(0, 122, 255, 0.2);
+    color: #5ac8fa;
+    border: 1px solid rgba(0, 122, 255, 0.3);
+}
+
+.currency-name {
+    font-size: 14px;
+    color: var(--text-secondary);
+    font-weight: 500;
+}
+
+/* Card Value - Main Number */
+.card-value {
+    font-size: 42px;
+    font-weight: 800;
+    letter-spacing: -1px;
+    margin-bottom: auto;
+    padding: 16px 0;
+}
+
+.som-card .card-value {
+    background: linear-gradient(135deg, #ff6b6b 0%, #ff8e8e 50%, #ffb3b3 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    text-shadow: 0 0 60px rgba(255, 107, 107, 0.5);
+}
+
+.dollar-card .card-value {
+    background: linear-gradient(135deg, #5ac8fa 0%, #70d7ff 50%, #a0e5ff 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    text-shadow: 0 0 60px rgba(90, 200, 250, 0.5);
+}
+
+/* Card Footer Stats */
+.card-footer {
+    display: flex;
+    gap: 24px;
+    padding-top: 20px;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.card-stat {
+    flex: 1;
+}
+
+.card-stat.full-width {
+    flex: none;
+    width: 100%;
+}
+
+.card-stat .stat-label {
+    display: block;
+    font-size: 12px;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 6px;
+}
+
+.card-stat .stat-val {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.card-stat .stat-val.positive {
+    color: #30d158;
+}
+
+/* Background Pattern */
+.card-bg-pattern {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 50%;
+    opacity: 0.03;
+    background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='1'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+    pointer-events: none;
+}
+
+/* Responsive */
+@media (max-width: 992px) {
+    .debt-cards-container {
+        grid-template-columns: 1fr;
+    }
+
+    .debt-premium-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 16px;
+    }
+
+    .premium-title h2 {
+        font-size: 24px;
+    }
+
+    .card-value {
+        font-size: 36px;
+    }
+}
+
+@media (max-width: 576px) {
+    .debt-premium-card {
+        min-height: 200px;
+    }
+
+    .card-content {
+        padding: 20px;
+    }
+
+    .card-value {
+        font-size: 28px;
+    }
+
+    .premium-icon {
+        width: 48px;
+        height: 48px;
+    }
+
+    .premium-title h2 {
+        font-size: 20px;
+    }
+}
+
+/* Animation on load */
+@keyframes cardSlideUp {
+    from {
+        opacity: 0;
+        transform: translateY(30px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.debt-premium-card {
+    animation: cardSlideUp 0.6s ease-out forwards;
+}
+
+.debt-premium-card:nth-child(2) {
+    animation-delay: 0.15s;
+}
+
+/* Shimmer effect on value */
+@keyframes shimmer {
+    0% {
+        background-position: -200% center;
+    }
+
+    100% {
+        background-position: 200% center;
+    }
+}
+
+.card-value {
+    background-size: 200% auto;
+    animation: shimmer 3s linear infinite;
+}
