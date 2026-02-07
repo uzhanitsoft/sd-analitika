@@ -61,12 +61,20 @@ class SalesDoctorApp {
 
     // Bo'sh statistika ko'rsatish
     showEmptyStats() {
-        document.getElementById('totalSalesUZS').textContent = '0';
-        document.getElementById('totalSalesUSD').textContent = '0';
-        document.getElementById('totalOrders').textContent = '0';
-        document.getElementById('totalClientsOKB').textContent = '0';
-        document.getElementById('totalClientsAKB').textContent = '0';
-        document.getElementById('totalProducts').textContent = '0';
+        // Safely update if elements exist
+        const updateIfExists = (id, value) => {
+            const el = document.getElementById(id);
+            if (el) el.textContent = value;
+        };
+
+        updateIfExists('totalSalesUZS', '0');
+        updateIfExists('totalSalesUSD', '0');
+        updateIfExists('totalOrders', '0');
+        updateIfExists('totalClientsOKB', '0');
+        updateIfExists('totalClientsAKB', '0');
+        updateIfExists('totalProducts', '0');
+
+        console.log('📊 Empty stats shown (elements may not exist)');
     }
 
     // Theme Management
