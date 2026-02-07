@@ -204,7 +204,7 @@ class SalesDoctorApp {
 
     getUsdRate() {
         const savedRate = localStorage.getItem('sd_usd_rate');
-        return savedRate ? parseFloat(savedRate) : 12800;
+        return savedRate ? parseFloat(savedRate) : 12200;
     }
 
     saveUsdRate() {
@@ -1371,12 +1371,16 @@ class SalesDoctorApp {
                     'd0_7': 'Axmedova Xalimaxon',
                     'd0_10': 'Abduraximova Muxayyoxon',
                     'd0_11': 'Aliakbar Yusupov',
+                    'd0_12': 'Agent 12',
                     'd0_19': 'Soliev Ibrohimjon',
                     'd0_21': 'Maxmudov Abdulazizxon',
                     'd0_22': 'Tojiboyev Abubakir',
+                    'd0_23': 'Agent 23',
                     'd0_24': 'Xolmirzayeva Honzodaxon',
                     'd0_25': 'Xolmuxamedova Ziroatxon',
-                    'd0_27': 'Muxtorxon aka Sleppy'
+                    'd0_26': 'Agent 26',
+                    'd0_27': 'Muxtorxon aka Sleppy',
+                    'd0_28': 'Agent 28'
                 };
 
                 // Buyurtmalardan agentlarni olish
