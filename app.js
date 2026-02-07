@@ -6,6 +6,7 @@
 class SalesDoctorApp {
     constructor() {
         this.api = new SalesDoctorAPI();
+        this.demo = new DemoDataGenerator(); // Sparklines uchun
         this.charts = {};
         this.currentPeriod = 'today';
         this.useRealData = true; // API avtomatik yoqilgan
