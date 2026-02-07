@@ -6,7 +6,6 @@
 class SalesDoctorApp {
     constructor() {
         this.api = new SalesDoctorAPI();
-        this.demo = new DemoDataGenerator();
         this.charts = {};
         this.currentPeriod = 'today';
         this.useRealData = false; // API ulanganda true bo'ladi
@@ -32,9 +31,12 @@ class SalesDoctorApp {
         // API ulangan bo'lsa, real datadan foydalanish
         if (this.api.isConfigured()) {
             this.useRealData = true;
+            this.loadDashboard();
+        } else {
+            // API sozlanmagan - modal ochish
+            console.log('⚠️ API sozlanmagan - login modal ochilmoqda...');
+            setTimeout(() => this.openConfigModal(), 500);
         }
-
-        this.loadDashboard();
     }
 
     // Theme Management
