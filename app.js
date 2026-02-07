@@ -381,9 +381,9 @@ class SalesDoctorApp {
 
         if (!summaUZS || summaUZS <= 0) return 0;
 
-        // Agar tan narx = 0 yoki yo'q bo'lsa, butun summa = foyda (100% margin)
+        // Agar tan narx = 0 yoki yo'q bo'lsa, butun summa = foyda (BONUS tovarlar)
         if (!costPriceUZS || costPriceUZS <= 0) {
-            return summaUZS; // To'liq summa foyda sifatida
+            return summaUZS; // To'liq summa foyda sifatida - bonus tovar
         }
 
         const totalCost = costPriceUZS * quantity;
@@ -1303,9 +1303,9 @@ class SalesDoctorApp {
                     const summa = parseFloat(item.summa) || 0;
                     const summaUZS = this.getSummaInUZS(summa);
 
-                    // Tan narxdan foyda hisoblash
+                    // Tan narxdan foyda hisoblash - summaUZS ishlatish!
                     const costData = costPrices[productId];
-                    const profit = this.calculateProfit(summa, costData?.costPriceUZS || 0, quantity);
+                    const profit = this.calculateProfit(summaUZS, costData?.costPriceUZS || 0, quantity);
 
                     if (!productStats[productId]) {
                         productStats[productId] = {
@@ -1362,7 +1362,7 @@ class SalesDoctorApp {
                         profit: Math.abs(a.totalSom || 0) * 0.15  // 15% foyda
                     }));
             } else {
-                // Agent nomlari (ID -> Ism) - Sales Doctor dan haqiqiy nomlar (Excel'dan tekshirilgan)
+                // Agent nomlari (ID -> Ism) - faqat API da ism yo'q bo'lsa ishlatiladi
                 const agentNames = {
                     'd0_2': 'Nilufarxon',
                     'd0_3': 'Muxtorxon aka Onlem',
@@ -1371,16 +1371,12 @@ class SalesDoctorApp {
                     'd0_7': 'Axmedova Xalimaxon',
                     'd0_10': 'Abduraximova Muxayyoxon',
                     'd0_11': 'Aliakbar Yusupov',
-                    'd0_12': 'Agent 12',
                     'd0_19': 'Soliev Ibrohimjon',
                     'd0_21': 'Maxmudov Abdulazizxon',
                     'd0_22': 'Tojiboyev Abubakir',
-                    'd0_23': 'Agent 23',
                     'd0_24': 'Xolmirzayeva Honzodaxon',
                     'd0_25': 'Xolmuxamedova Ziroatxon',
-                    'd0_26': 'Agent 26',
-                    'd0_27': 'Muxtorxon aka Sleppy',
-                    'd0_28': 'Agent 28'
+                    'd0_27': 'Muxtorxon aka Sleppy'
                 };
 
                 // Buyurtmalardan agentlarni olish
@@ -1388,7 +1384,9 @@ class SalesDoctorApp {
                 const agentStats = {};
                 orders.forEach(order => {
                     const agentId = order.agent?.SD_id || 'unknown';
-                    const agentName = agentNames[agentId] || order.agent?.name || '';
+                    // MUHIM: Avval API dan nomni olish, keyin mappingdan
+                    const apiName = order.agent?.name || '';
+                    const agentName = apiName || agentNames[agentId] || `Agent ${agentId.replace('d0_', '')}`;
                     const clientId = order.client?.SD_id || 'unknown';
                     const summa = this.getSummaInUZS(parseFloat(order.totalSumma) || 0);
 
