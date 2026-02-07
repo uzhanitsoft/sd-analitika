@@ -8,7 +8,7 @@ class SalesDoctorApp {
         this.api = new SalesDoctorAPI();
         this.charts = {};
         this.currentPeriod = 'today';
-   this.useRealData = true; // API avtomatik yoqilgan
+        this.useRealData = true; // API avtomatik yoqilgan
         this.cachedCostPrices = null; // Har safar yangi ma'lumot olish uchun
 
 
@@ -25,6 +25,7 @@ class SalesDoctorApp {
     }
 
     init() {
+        // Safety timeout - 10 sekund ichida loading yashiriladi
         setTimeout(() => {
             this.hideLoading();
             console.log('⏰ Loading timeout - forcefully hidden');
@@ -34,6 +35,7 @@ class SalesDoctorApp {
             this.setupTheme();
             this.setupEventListeners();
 
+            // api.js da default credentials mavjud - avtomatik yuklash
             if (this.api.isConfigured()) {
                 console.log('✅ API konfiguratsiya topildi - Dashboard yuklanmoqda...');
                 this.loadDashboard().catch(error => {
@@ -46,29 +48,6 @@ class SalesDoctorApp {
                 this.hideLoading();
                 this.showEmptyStats();
             }
-        } catch (error) {
-            console.error('❌ Init xatosi:', error);
-            this.hideLoading();
-            this.showEmptyStats();
-        }
-    }
-            setTimeout(() => {
-                const configure = confirm('API sozlanmagan! API ni sozlaysizmi?');
-                if (configure) {
-                    const apiUrl = prompt('API URL:', 'https://rafia.salesdoc.io');
-                    const username = prompt('Username:');
-                    const password = prompt('Password:');
-
-                    if (apiUrl && username && password) {
-                        localStorage.setItem('sd_api_url', apiUrl);
-                        localStorage.setItem('sd_api_username', username);
-                        localStorage.setItem('sd_api_password', password);
-
-                        alert('API sozlandi! Sahifa yangilanmoqda...');
-                        location.reload();
-                    }
-                }
-            }, 1000);
         } catch (error) {
             console.error('❌ Init xatosi:', error);
             this.hideLoading();
@@ -4256,4 +4235,3 @@ class SalesDoctorApp {
 document.addEventListener('DOMContentLoaded', () => {
     window.app = new SalesDoctorApp();
 });
-
