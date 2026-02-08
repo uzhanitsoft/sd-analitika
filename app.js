@@ -437,6 +437,7 @@ class SalesDoctorApp {
             this.loadCachedCharts(CACHE_BASE_URL).catch(e => console.error('Chart xatosi:', e));
             this.loadCachedTables(CACHE_BASE_URL).catch(e => console.error('Table xatosi:', e));
             this.loadDebtAndPaymentStats();
+            this.loadKassaStats(CACHE_BASE_URL);
 
         } catch (error) {
             console.error('❌ Server cache xatosi:', error);
@@ -4700,6 +4701,159 @@ class SalesDoctorApp {
         const abs = Math.abs(value);
         const formatted = Math.round(abs).toLocaleString('ru-RU');
         return (value < 0 ? '-' : '') + formatted;
+    }
+
+    // 💰 Kassa statistikasini yuklash
+    async loadKassaStats(baseUrl) {
+        try {
+            const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+            const CACHE_BASE_URL = baseUrl || (isLocal
+                ? 'http://localhost:3000'
+                : 'https://sd-analitika-production.up.railway.app');
+
+            const res = await this.fetchWithTimeout(`${CACHE_BASE_URL}/api/cache/kassa/${this.currentPeriod}`, 5000);
+            const data = await res.json();
+
+            if (data.status && data.result) {
+                const { totalUZS, totalUSD } = data.result;
+
+                const kassaUZSEl = document.getElementById('kassaTotalUZS');
+                const kassaUSDEl = document.getElementById('kassaTotalUSD');
+
+                if (kassaUZSEl) kassaUZSEl.textContent = Math.round(totalUZS).toLocaleString('ru-RU');
+                if (kassaUSDEl) kassaUSDEl.textContent = '$' + totalUSD.toLocaleString();
+
+                // Kassa ma'lumotlarini saqlash
+                this._kassaData = data.result;
+            }
+        } catch (error) {
+            console.error('Kassa yuklash xatosi:', error);
+        }
+    }
+
+    // 💰 Kassa modal - agent bo'yicha to'lovlar
+    openKassaModal() {
+        const data = this._kassaData;
+        if (!data) {
+            alert('Kassa ma\'lumotlari hali yuklanmadi');
+            return;
+        }
+
+        const overlay = document.createElement('div');
+        overlay.className = 'detail-overlay';
+        overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);z-index:1000;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(5px);';
+
+        const periodLabels = {
+            'today': 'Bugun',
+            'yesterday': 'Kecha',
+            'week': 'Hafta',
+            'month': 'Oy',
+            'year': 'Yil'
+        };
+        const periodLabel = periodLabels[this.currentPeriod] || this.currentPeriod;
+
+        const agentRows = (data.agents || []).map((agent, i) => {
+            const uzsFormatted = Math.round(agent.totalUZS).toLocaleString('ru-RU');
+            const usdFormatted = agent.totalUSD > 0 ? `$${agent.totalUSD.toLocaleString()}` : '-';
+            const clientCount = agent.clients?.length || 0;
+
+            // Mijozlar sub-jadvali
+            const clientRows = (agent.clients || []).map((client, j) => {
+                const cUzs = Math.round(client.totalUZS).toLocaleString('ru-RU');
+                const cUsd = client.totalUSD > 0 ? `$${client.totalUSD.toLocaleString()}` : '-';
+                return `
+                    <tr style="background: rgba(59,130,246,0.05); border-bottom: 1px solid rgba(255,255,255,0.03);">
+                        <td style="padding: 8px 16px 8px 40px; color: #6b7280; font-size: 12px;">${j + 1}</td>
+                        <td style="padding: 8px 16px; font-size: 13px; color: #d1d5db;">👤 ${client.name}</td>
+                        <td style="padding: 8px 16px; text-align: right; color: #6ee7b7; font-size: 13px;">${cUzs}</td>
+                        <td style="padding: 8px 16px; text-align: right; color: #93c5fd; font-size: 13px;">${cUsd}</td>
+                        <td style="padding: 8px 16px; text-align: center; color: #6b7280; font-size: 13px;">${client.count}</td>
+                    </tr>
+                `;
+            }).join('');
+
+            return `
+                <tr class="agent-row" data-agent-idx="${i}" 
+                    style="border-bottom: 1px solid rgba(255,255,255,0.06); cursor: pointer; transition: background 0.2s;"
+                    onmouseenter="this.style.background='rgba(255,255,255,0.04)'"
+                    onmouseleave="this.style.background='transparent'"
+                    onclick="const sub = document.getElementById('kassa-clients-${i}'); const arrow = document.getElementById('kassa-arrow-${i}'); if(sub.style.display==='none'){sub.style.display='';arrow.textContent='▼'}else{sub.style.display='none';arrow.textContent='▶'}">
+                    <td style="padding: 14px 16px; color: #9ca3af;">${i + 1}</td>
+                    <td style="padding: 14px 16px; font-weight: 600;">
+                        <span id="kassa-arrow-${i}" style="color: #6b7280; margin-right: 8px; font-size: 10px;">▶</span>${agent.name}
+                        <span style="color: #6b7280; font-size: 12px; margin-left: 8px;">(${clientCount} mijoz)</span>
+                    </td>
+                    <td style="padding: 14px 16px; text-align: right; color: #10b981; font-weight: 700;">${uzsFormatted}</td>
+                    <td style="padding: 14px 16px; text-align: right; color: #60a5fa; font-weight: 700;">${usdFormatted}</td>
+                    <td style="padding: 14px 16px; text-align: center; color: #9ca3af; font-weight: 500;">${agent.count}</td>
+                </tr>
+                <tr id="kassa-clients-${i}" style="display: none;">
+                    <td colspan="5" style="padding: 0;">
+                        <table style="width: 100%; border-collapse: collapse;">
+                            ${clientRows}
+                        </table>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+
+        overlay.innerHTML = `
+            <div style="background: var(--bg-card, #1a1a2e); border-radius: 20px; width: 95%; max-width: 1000px; max-height: 95vh; overflow: hidden; border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 25px 50px rgba(0,0,0,0.5); display: flex; flex-direction: column;">
+                <div style="padding: 24px 28px; border-bottom: 1px solid rgba(255,255,255,0.08); display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;">
+                    <div>
+                        <h2 style="margin: 0; font-size: 24px; color: white;">💰 Pul Kirimlari</h2>
+                        <p style="margin: 4px 0 0; color: #9ca3af; font-size: 14px;">${periodLabel} • ${data.totalPayments} ta to'lov • Agent ustiga bosing → mijozlarni ko'ring</p>
+                    </div>
+                    <button onclick="this.closest('.detail-overlay').remove()" 
+                        style="background: rgba(255,255,255,0.1); border: none; color: white; width: 40px; height: 40px; border-radius: 12px; cursor: pointer; font-size: 20px; transition: background 0.2s;"
+                        onmouseenter="this.style.background='rgba(255,255,255,0.2)'"
+                        onmouseleave="this.style.background='rgba(255,255,255,0.1)'">✕</button>
+                </div>
+
+                <div style="padding: 16px 28px; display: flex; gap: 16px; border-bottom: 1px solid rgba(255,255,255,0.08); flex-shrink: 0;">
+                    <div style="flex: 1; background: rgba(16,185,129,0.1); border-radius: 14px; padding: 20px; border: 1px solid rgba(16,185,129,0.2);">
+                        <div style="font-size: 12px; color: #6ee7b7; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px;">Jami So'm</div>
+                        <div style="font-size: 28px; font-weight: 800; color: #10b981;">${Math.round(data.totalUZS).toLocaleString('ru-RU')}</div>
+                    </div>
+                    <div style="flex: 1; background: rgba(96,165,250,0.1); border-radius: 14px; padding: 20px; border: 1px solid rgba(96,165,250,0.2);">
+                        <div style="font-size: 12px; color: #93c5fd; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px;">Jami Dollar</div>
+                        <div style="font-size: 28px; font-weight: 800; color: #60a5fa;">$${data.totalUSD.toLocaleString()}</div>
+                    </div>
+                </div>
+
+                <div style="overflow-y: auto; flex: 1;">
+                    <table style="width: 100%; border-collapse: collapse; color: white;">
+                        <thead style="position: sticky; top: 0; background: var(--bg-card, #1a1a2e); z-index: 1;">
+                            <tr style="border-bottom: 2px solid rgba(255,255,255,0.1);">
+                                <th style="padding: 14px 16px; text-align: left; font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: 1px; width: 50px;">#</th>
+                                <th style="padding: 14px 16px; text-align: left; font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: 1px;">Agent</th>
+                                <th style="padding: 14px 16px; text-align: right; font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: 1px;">So'm</th>
+                                <th style="padding: 14px 16px; text-align: right; font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: 1px;">Dollar</th>
+                                <th style="padding: 14px 16px; text-align: center; font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: 1px; width: 80px;">Soni</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${agentRows || '<tr><td colspan="5" style="padding: 40px; text-align: center; color: #6b7280;">Ma\'lumot yo\'q</td></tr>'}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        `;
+
+        overlay.addEventListener('click', (e) => {
+            if (e.target === overlay) overlay.remove();
+        });
+
+        // ESC tugmasi bilan yopish
+        const escHandler = (e) => {
+            if (e.key === 'Escape') {
+                overlay.remove();
+                document.removeEventListener('keydown', escHandler);
+            }
+        };
+        document.addEventListener('keydown', escHandler);
+
+        document.body.appendChild(overlay);
     }
 
 }

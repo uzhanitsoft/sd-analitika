@@ -267,7 +267,9 @@ async function fetchAllPaginated(method, resultKey, limit = 1000, maxPages = 20,
 
             if (items.length > 0) {
                 allItems = allItems.concat(items);
-                hasMore = items.length === limit;
+                // API limit dan kam qaytarsa ham, keyingi sahifani tekshirish kerak
+                // chunki SD API ba'zan limit dan kam elementni qaytaradi (998/1000)
+                hasMore = items.length >= Math.floor(limit * 0.5); // 50% dan ko'p bo'lsa davom etish
                 page++;
             } else {
                 hasMore = false;
@@ -338,9 +340,10 @@ async function refreshCache() {
         serverCache.balances = await fetchAllPaginated('getBalance', 'balance', 1000);
         console.log(`   ✅ ${serverCache.balances.length} ta balance`);
 
-        // 5. To'lovlar
+        // 5. To'lovlar (barcha sahifalar)
         console.log('💳 Tolovlar yuklanmoqda...');
-        serverCache.payments = await fetchAllPaginated('getPayment', 'payment', 1000);
+        // API limit=1000 da ham to'liq qaytarmaydi, shuning uchun 500 bilan ko'proq sahifa
+        serverCache.payments = await fetchAllPaginated('getPayment', 'payment', 500, 30);
         console.log(`   ✅ ${serverCache.payments.length} ta to'lov`);
 
         // 6. Prixodlar (tan narx uchun)
@@ -804,6 +807,116 @@ app.get('/api/cache/payments', (req, res) => {
         status: true,
         result: { payment: serverCache.payments },
         total: serverCache.payments.length,
+        lastUpdate: serverCache.lastUpdate
+    });
+});
+
+// Kassa - period bo'yicha to'lovlar statistikasi
+app.get('/api/cache/kassa/:period', (req, res) => {
+    const period = req.params.period || 'today';
+
+    if (!serverCache.payments) {
+        return res.json({ status: false, error: 'Cache hali tayyor emas' });
+    }
+
+    const dateRange = getDateRange(period);
+    const agents = serverCache.agents || [];
+    const clients = serverCache.clients || [];
+
+    // Agent va mijoz nomlarini oldindan tayyorlash
+    const agentNames = {};
+    agents.forEach(a => {
+        agentNames[a.SD_id] = a.name || 'Noma\'lum';
+    });
+
+    const clientNames = {};
+    clients.forEach(c => {
+        clientNames[c.SD_id] = c.name || 'Noma\'lum';
+    });
+
+    // Dollar to'lov turlari
+    const dollarPayTypes = new Set(['d0_4']);
+
+    // To'lovlarni sana bo'yicha filtrlash
+    const filteredPayments = serverCache.payments.filter(p => {
+        const payDate = (p.paymentDate || '').split('T')[0].split(' ')[0];
+        return payDate >= dateRange.startDate && payDate <= dateRange.endDate;
+    });
+
+    let totalUZS = 0;
+    let totalUSD = 0;
+    const agentPayments = {};
+
+    filteredPayments.forEach(p => {
+        const amount = parseFloat(p.amount) || 0;
+        if (amount <= 0) return;
+
+        const payTypeId = p.paymentType?.SD_id || '';
+        const agentId = p.agent?.SD_id || 'unknown';
+        const clientId = p.client?.SD_id || 'unknown';
+
+        const isDollar = dollarPayTypes.has(payTypeId);
+
+        if (isDollar) {
+            totalUSD += amount;
+        } else {
+            totalUZS += amount;
+        }
+
+        // Agent statistikasi
+        if (!agentPayments[agentId]) {
+            agentPayments[agentId] = {
+                name: agentNames[agentId] || 'Noma\'lum',
+                totalUZS: 0,
+                totalUSD: 0,
+                count: 0,
+                clientPayments: {}
+            };
+        }
+
+        if (isDollar) {
+            agentPayments[agentId].totalUSD += amount;
+        } else {
+            agentPayments[agentId].totalUZS += amount;
+        }
+        agentPayments[agentId].count++;
+
+        // Mijoz statistikasi (agent ichida)
+        if (!agentPayments[agentId].clientPayments[clientId]) {
+            agentPayments[agentId].clientPayments[clientId] = {
+                name: clientNames[clientId] || clientId,
+                totalUZS: 0,
+                totalUSD: 0,
+                count: 0
+            };
+        }
+
+        if (isDollar) {
+            agentPayments[agentId].clientPayments[clientId].totalUSD += amount;
+        } else {
+            agentPayments[agentId].clientPayments[clientId].totalUZS += amount;
+        }
+        agentPayments[agentId].clientPayments[clientId].count++;
+    });
+
+    // Agentlarni jami bo'yicha saralash va mijozlarni array ga aylantirish
+    const agentList = Object.entries(agentPayments)
+        .map(([id, data]) => {
+            const clientList = Object.entries(data.clientPayments)
+                .map(([cid, cdata]) => ({ id: cid, ...cdata }))
+                .sort((a, b) => (b.totalUZS + b.totalUSD * 12200) - (a.totalUZS + a.totalUSD * 12200));
+            return { id, name: data.name, totalUZS: data.totalUZS, totalUSD: data.totalUSD, count: data.count, clients: clientList };
+        })
+        .sort((a, b) => (b.totalUZS + b.totalUSD * 12200) - (a.totalUZS + a.totalUSD * 12200));
+
+    res.json({
+        status: true,
+        result: {
+            totalUZS,
+            totalUSD,
+            totalPayments: filteredPayments.length,
+            agents: agentList
+        },
         lastUpdate: serverCache.lastUpdate
     });
 });
