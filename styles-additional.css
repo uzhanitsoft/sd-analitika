@@ -656,13 +656,30 @@ tbody tr:hover {
     color: var(--text-primary);
 }
 
+@media (max-width: 1400px) {
+    .stats-grid {
+        grid-template-columns: repeat(3, 1fr) !important;
+        gap: 16px;
+    }
+}
+
 @media (max-width: 1200px) {
     .stats-grid {
-        grid-template-columns: repeat(2, 1fr);
+        grid-template-columns: repeat(2, 1fr) !important;
+        gap: 16px;
     }
 
     .charts-section {
         grid-template-columns: 1fr;
+    }
+
+    .stat-value {
+        font-size: 26px;
+    }
+
+    .stat-card {
+        padding: 20px;
+        min-height: 150px;
     }
 }
 
@@ -686,19 +703,32 @@ tbody tr:hover {
     .tables-section {
         grid-template-columns: 1fr;
     }
+
+    .debt-cards-container {
+        grid-template-columns: 1fr !important;
+    }
+
+    .debt-grid {
+        grid-template-columns: repeat(2, 1fr) !important;
+    }
+
+    .agents-grid {
+        grid-template-columns: repeat(2, 1fr) !important;
+    }
 }
 
 @media (max-width: 768px) {
     .header {
-        padding: 0 16px;
+        padding: 0 12px;
     }
 
     .dashboard-content {
-        padding: 16px;
+        padding: 12px;
     }
 
     .stats-grid {
-        grid-template-columns: 1fr;
+        grid-template-columns: 1fr !important;
+        gap: 12px;
     }
 
     .search-box {
@@ -706,21 +736,63 @@ tbody tr:hover {
     }
 
     .date-filter {
-        flex-direction: column;
-        align-items: stretch;
+        flex-direction: row;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 6px;
+    }
+
+    .date-filter .filter-btn {
+        padding: 8px 14px;
+        font-size: 13px;
     }
 
     .date-range {
         margin-left: 0;
-        margin-top: 12px;
+        margin-top: 8px;
+        width: 100%;
     }
 
     .page-title h1 {
-        font-size: 20px;
+        font-size: 18px;
     }
 
     .stat-value {
-        font-size: 24px;
+        font-size: 22px;
+    }
+
+    .stat-card {
+        padding: 16px;
+        min-height: auto;
+        border-radius: 16px;
+    }
+
+    .stat-icon {
+        width: 40px;
+        height: 40px;
+    }
+
+    .debt-grid {
+        grid-template-columns: 1fr !important;
+    }
+
+    .agents-grid {
+        grid-template-columns: 1fr !important;
+    }
+
+    .section-header {
+        flex-direction: column;
+        align-items: flex-start !important;
+        gap: 10px;
+    }
+
+    .usd-rate-box {
+        padding: 4px 8px;
+    }
+
+    .usd-rate-box input {
+        width: 65px;
+        font-size: 12px;
     }
 }
 
@@ -838,6 +910,10 @@ tbody tr:hover {
     font-weight: 600;
     color: var(--text-secondary);
     text-transform: uppercase;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background-color: #1a1d23;
 }
 
 .data-table td {
@@ -1076,6 +1152,16 @@ tbody tr:hover {
 .stat-card-wide {
     grid-column: span 1;
     min-width: 280px;
+}
+
+@media (min-width: 992px) {
+    .stats-grid {
+        grid-template-columns: repeat(3, 1fr) !important;
+    }
+
+    .stat-card-wide {
+        grid-column: span 1;
+    }
 }
 
 .dual-currency {
@@ -1667,15 +1753,9 @@ tbody tr:hover {
     }
 }
 
-/* Stat card wide - spans 2 columns */
+/* Stat card wide - spans full width on mobile */
 .stat-card.stat-card-wide {
     grid-column: span 1;
-}
-
-@media (min-width: 992px) {
-    .stat-card.stat-card-wide {
-        grid-column: span 1;
-    }
 }
 
 /* ============================================
@@ -1803,9 +1883,10 @@ tbody tr:hover {
     color: var(--text-secondary);
     text-transform: uppercase;
     letter-spacing: 0.5px;
-    background: rgba(255, 255, 255, 0.02);
+    background-color: #1a1d23;
     position: sticky;
     top: 0;
+    z-index: 10;
 }
 
 .data-table td {
