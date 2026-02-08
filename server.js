@@ -251,6 +251,7 @@ async function fetchAllPaginated(method, resultKey, limit = 1000, maxPages = 20,
     let allItems = [];
     let page = 1;
     let hasMore = true;
+    let prevPageCount = 0;
 
     while (hasMore && page <= maxPages) {
         try {
@@ -267,9 +268,14 @@ async function fetchAllPaginated(method, resultKey, limit = 1000, maxPages = 20,
 
             if (items.length > 0) {
                 allItems = allItems.concat(items);
-                // API limit dan kam qaytarsa ham, keyingi sahifani tekshirish kerak
-                // chunki SD API ba'zan limit dan kam elementni qaytaradi (998/1000)
-                hasMore = items.length >= Math.floor(limit * 0.5); // 50% dan ko'p bo'lsa davom etish
+                console.log(`   📄 ${method} sahifa ${page}: ${items.length} ta`);
+
+                // Keyingi sahifa bormi?
+                // Agar limitga yaqin (90%+) element qaytsa — davom etish
+                // Agar ancha kam qaytsa — to'xtatish
+                const threshold = Math.floor(limit * 0.9);
+                hasMore = items.length >= threshold;
+                prevPageCount = items.length;
                 page++;
             } else {
                 hasMore = false;
@@ -281,6 +287,33 @@ async function fetchAllPaginated(method, resultKey, limit = 1000, maxPages = 20,
     }
 
     return allItems;
+}
+
+// To'lovlarni alohida olish — SD API pagination muammosi uchun
+async function fetchAllPayments() {
+    let allPayments = [];
+    let page = 1;
+    const maxPages = 10;
+    const limit = 1000;
+
+    while (page <= maxPages) {
+        try {
+            const data = await apiRequest('getPayment', { page, limit });
+            const items = data?.result?.payment || [];
+
+            console.log(`   📄 getPayment sahifa ${page}: ${items.length} ta`);
+
+            if (items.length === 0) break;
+
+            allPayments = allPayments.concat(items);
+            page++;
+        } catch (e) {
+            console.error(`❌ getPayment sahifa ${page} xatosi:`, e.message);
+            break;
+        }
+    }
+
+    return allPayments;
 }
 
 // Cache yangilash - BARCHA MA'LUMOTLARNI YUKLASH
@@ -340,10 +373,9 @@ async function refreshCache() {
         serverCache.balances = await fetchAllPaginated('getBalance', 'balance', 1000);
         console.log(`   ✅ ${serverCache.balances.length} ta balance`);
 
-        // 5. To'lovlar (barcha sahifalar)
+        // 5. To'lovlar (alohida funksiya — pagination muammosi uchun)
         console.log('💳 Tolovlar yuklanmoqda...');
-        // API limit=1000 da ham to'liq qaytarmaydi, shuning uchun 500 bilan ko'proq sahifa
-        serverCache.payments = await fetchAllPaginated('getPayment', 'payment', 500, 30);
+        serverCache.payments = await fetchAllPayments();
         console.log(`   ✅ ${serverCache.payments.length} ta to'lov`);
 
         // 6. Prixodlar (tan narx uchun)
