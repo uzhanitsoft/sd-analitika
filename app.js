@@ -321,14 +321,14 @@ class SalesDoctorApp {
                 startDate = this.formatLocalDate(weekAgo);
                 break;
             case 'month':
-                const monthAgo = new Date(now);
-                monthAgo.setMonth(monthAgo.getMonth() - 1);
-                startDate = this.formatLocalDate(monthAgo);
+                // Joriy oyning 1-sanasi
+                const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+                startDate = this.formatLocalDate(monthStart);
                 break;
             case 'year':
-                const yearAgo = new Date(now);
-                yearAgo.setFullYear(yearAgo.getFullYear() - 1);
-                startDate = this.formatLocalDate(yearAgo);
+                // Joriy yilning 1-yanvar
+                const yearStart = new Date(now.getFullYear(), 0, 1);
+                startDate = this.formatLocalDate(yearStart);
                 break;
             case 'custom':
                 // Custom sana oraligi
