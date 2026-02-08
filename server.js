@@ -1,6 +1,6 @@
 /**
- * Sales Doctor Analytics - Proxy Server
- * CORS muammosini hal qilish uchun
+ * Sales Doctor Analytics - Caching Proxy Server
+ * 🚀 Tez yuklash uchun server-side cache
  */
 
 const express = require('express');
@@ -17,6 +17,1091 @@ app.use(express.json());
 
 // Static fayllarni xizmat qilish
 app.use(express.static(path.join(__dirname)));
+
+// =============================================================================
+// 🚀 SERVER-SIDE CACHE SYSTEM
+// =============================================================================
+
+const CACHE_CONFIG = {
+    REFRESH_INTERVAL: 10 * 60 * 1000, // 10 daqiqa
+    API_CREDENTIALS: {
+        serverUrl: 'rafiq.salesdoc.io',
+        login: 'admin',
+        password: '1234567rafiq',
+        userId: null,  // Login orqali olinadi
+        token: null    // Login orqali olinadi
+    }
+};
+
+// Cache xotirasi
+let serverCache = {
+    orders: null,           // Barcha buyurtmalar
+    products: null,         // Barcha mahsulotlar
+    clients: null,          // Barcha mijozlar
+    balances: null,         // Barcha qarzlar
+    payments: null,         // Barcha to'lovlar
+    purchases: null,        // Barcha prixodlar (tan narx uchun)
+    stock: null,            // Ostatka (getStock dan)
+    priceTypes: null,       // Narx turlari
+    agents: null,           // Agentlar
+    transactions: null,     // Web panel transactions (SROK bilan!)
+    stats: null,            // Hisoblangan statistika
+    lastUpdate: null,       // Oxirgi yangilanish
+    isLoading: false,       // Yuklanish holati
+    error: null             // Xato
+};
+
+// 🔐 Login funksiyasi - yangi token olish
+async function refreshToken() {
+    const { serverUrl, login, password } = CACHE_CONFIG.API_CREDENTIALS;
+    const apiUrl = `https://${serverUrl}/api/v2/`;
+
+    console.log('🔐 Login qilinyapti...');
+
+    try {
+        const response = await fetch(apiUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                method: 'login',
+                auth: { login, password }
+            })
+        });
+
+        const data = await response.json();
+
+        if (data.status && data.result) {
+            CACHE_CONFIG.API_CREDENTIALS.userId = data.result.userId;
+            CACHE_CONFIG.API_CREDENTIALS.token = data.result.token;
+            console.log(`✅ Login muvaffaqiyatli! userId: ${data.result.userId}`);
+            return true;
+        } else {
+            console.error('❌ Login xatosi:', data.error);
+            return false;
+        }
+    } catch (error) {
+        console.error('❌ Login network xatosi:', error.message);
+        return false;
+    }
+}
+
+// 🌐 Web panel login - session cookie olish (srok uchun)
+let webSessionCookies = {};
+async function webLogin() {
+    try {
+        const { serverUrl, login, password } = CACHE_CONFIG.API_CREDENTIALS;
+        const webBase = `https://${serverUrl}`;
+
+        // 1. Login sahifasi - cookie olish
+        const page1 = await fetch(webBase + '/site/login', {
+            headers: { 'User-Agent': 'Mozilla/5.0' },
+            redirect: 'manual'
+        });
+        (page1.headers.raw()['set-cookie'] || []).forEach(c => {
+            const parts = c.split(';')[0].split('=');
+            webSessionCookies[parts[0].trim()] = parts.slice(1).join('=').trim();
+        });
+
+        // 2. Login POST
+        const cookieStr = Object.keys(webSessionCookies).map(k => k + '=' + webSessionCookies[k]).join('; ');
+        const loginRes = await fetch(webBase + '/site/login', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'Cookie': cookieStr,
+                'User-Agent': 'Mozilla/5.0'
+            },
+            body: `LoginForm[username]=${login}&LoginForm[password]=${password}&LoginForm[rememberMe]=1`,
+            redirect: 'manual'
+        });
+        (loginRes.headers.raw()['set-cookie'] || []).forEach(c => {
+            const parts = c.split(';')[0].split('=');
+            webSessionCookies[parts[0].trim()] = parts.slice(1).join('=').trim();
+        });
+
+        // 3. Follow redirect
+        const loc = loginRes.headers.get('location');
+        if (loc) {
+            const fullUrl = loc.startsWith('http') ? loc : webBase + loc;
+            const rr = await fetch(fullUrl, {
+                headers: { 'Cookie': cookieStr, 'User-Agent': 'Mozilla/5.0' },
+                redirect: 'manual'
+            });
+            (rr.headers.raw()['set-cookie'] || []).forEach(c => {
+                const parts = c.split(';')[0].split('=');
+                webSessionCookies[parts[0].trim()] = parts.slice(1).join('=').trim();
+            });
+        }
+
+        console.log('✅ Web panel login muvaffaqiyatli!');
+        return true;
+    } catch (error) {
+        console.error('❌ Web login xatosi:', error.message);
+        return false;
+    }
+}
+
+// 📊 Web paneldan transactions + SROK ma'lumotlarini olish
+async function fetchTransactionsData() {
+    try {
+        const { serverUrl } = CACHE_CONFIG.API_CREDENTIALS;
+        const webBase = `https://${serverUrl}`;
+        const cookieStr = Object.keys(webSessionCookies).map(k => k + '=' + webSessionCookies[k]).join('; ');
+
+        // Session yaratish (sahifa ochish)
+        await fetch(webBase + '/clients/transactions', {
+            headers: { 'Cookie': cookieStr, 'User-Agent': 'Mozilla/5.0' }
+        });
+
+        // JsonData endpointidan ma'lumot olish
+        const res = await fetch(webBase + '/clients/transactions/JsonData?hand=1', {
+            headers: {
+                'Cookie': cookieStr,
+                'User-Agent': 'Mozilla/5.0',
+                'X-Requested-With': 'XMLHttpRequest',
+                'Accept': 'application/json, text/plain, */*'
+            }
+        });
+        const body = await res.text();
+        const json = JSON.parse(body);
+
+        if (!json.data || !Array.isArray(json.data)) {
+            console.error('❌ JsonData ma\'lumot formati noto\'g\'ri');
+            return null;
+        }
+
+        // Ma'lumotlarni parse qilish
+        // [0]=clientId, [2]=name, [6]=territory, [11]=totalDebt, [12]=cashDebt,
+        // [13]=dollarDebt, [14]=totalDebt2, [16]=srokDate(HTML), [17]=overdueDays,
+        // [24]=agentName
+        const clients = json.data.map(row => {
+            // Srok sanasini HTML dan olish: <span style="...">2026-02-04</span>
+            let srokDate = '';
+            let isOverdue = false;
+            const srokHtml = String(row[16] || '');
+            const dateMatch = srokHtml.match(/(\d{4}-\d{2}-\d{2})/);
+            if (dateMatch) {
+                srokDate = dateMatch[1];
+                isOverdue = srokHtml.indexOf('#e74c3c') >= 0; // Qizil = muddati o'tgan
+            }
+
+            const overdueDays = parseInt(row[17]) || 0;
+
+            // Qarz summalarini parse qilish (vergul va nuqta bilan)
+            const parseNum = (val) => {
+                if (!val) return 0;
+                return parseFloat(String(val).replace(/,/g, '').replace(/\s/g, '')) || 0;
+            };
+
+            return {
+                clientId: row[0] || '',
+                name: row[2] || '',
+                territory: row[6] || '',
+                totalDebt: parseNum(row[11]),
+                cashDebt: parseNum(row[12]),
+                dollarDebt: parseNum(row[13]),
+                srokDate: srokDate,
+                overdueDays: overdueDays,
+                isOverdue: isOverdue,
+                agentName: row[24] || '',
+                agentCode: row[25] || ''
+            };
+        });
+
+        console.log(`   ✅ ${clients.length} ta mijoz (srok bilan)`);
+        return clients;
+    } catch (error) {
+        console.error('❌ Transactions fetch xatosi:', error.message);
+        return null;
+    }
+}
+
+// API so'rov helper
+async function apiRequest(method, params = {}) {
+    const { serverUrl, userId, token } = CACHE_CONFIG.API_CREDENTIALS;
+    const apiUrl = `https://${serverUrl}/api/v2/`;
+
+    try {
+        const response = await fetch(apiUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                auth: { userId, token },
+                method: method,
+                params: params
+            })
+        });
+
+        const data = await response.json();
+
+        // Xato tekshirish
+        if (data.status === false) {
+            console.error(`   ⚠️ API ${method} xatosi:`, data.error);
+        }
+
+        return data;
+    } catch (error) {
+        console.error(`   ❌ API ${method} network xatosi:`, error.message);
+        return { status: false, error: error.message };
+    }
+}
+
+// Pagination bilan barcha ma'lumotlarni olish
+async function fetchAllPaginated(method, resultKey, limit = 1000, maxPages = 20, dateFilter = null) {
+    let allItems = [];
+    let page = 1;
+    let hasMore = true;
+
+    while (hasMore && page <= maxPages) {
+        try {
+            const params = { page, limit, filter: { status: 'all' } };
+
+            // Sana filtri qo'shish (buyurtmalar uchun)
+            if (dateFilter && dateFilter.startDate && dateFilter.endDate) {
+                params.filter.startDate = dateFilter.startDate;
+                params.filter.endDate = dateFilter.endDate;
+            }
+
+            const data = await apiRequest(method, params);
+            const items = data?.result?.[resultKey] || [];
+
+            if (items.length > 0) {
+                allItems = allItems.concat(items);
+                hasMore = items.length === limit;
+                page++;
+            } else {
+                hasMore = false;
+            }
+        } catch (e) {
+            console.error(`❌ ${method} sahifa ${page} xatosi:`, e.message);
+            hasMore = false;
+        }
+    }
+
+    return allItems;
+}
+
+// Cache yangilash - BARCHA MA'LUMOTLARNI YUKLASH
+async function refreshCache() {
+    if (serverCache.isLoading) {
+        console.log('⏳ Cache yangilanmoqda, kutilmoqda...');
+        return;
+    }
+
+    serverCache.isLoading = true;
+    serverCache.error = null;
+    const startTime = Date.now();
+
+    console.log('');
+    console.log('╔════════════════════════════════════════════════╗');
+    console.log('║  🔄 CACHE YANGILANMOQDA...                     ║');
+    console.log('╚════════════════════════════════════════════════╝');
+
+    // Avval login qilish (yangi token olish)
+    const loginSuccess = await refreshToken();
+    if (!loginSuccess) {
+        console.error('❌ Login muvaffaqiyatsiz - cache yangilanmadi');
+        serverCache.isLoading = false;
+        serverCache.error = 'Login xatosi';
+        return;
+    }
+
+    try {
+        // 1. Buyurtmalar - oxirgi 365 kunlik (Yillik statistika uchun)
+        console.log('📦 Buyurtmalar yuklanmoqda (365 kunlik)...');
+
+        // Lokal sana (timezone muammosini hal qilish)
+        const now = new Date();
+        const endDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+
+        const oneYearAgo = new Date(now);
+        oneYearAgo.setDate(oneYearAgo.getDate() - 365);
+        const startDate = `${oneYearAgo.getFullYear()}-${String(oneYearAgo.getMonth() + 1).padStart(2, '0')}-${String(oneYearAgo.getDate()).padStart(2, '0')}`;
+
+        console.log(`   📅 Sana oralig'i: ${startDate} - ${endDate}`);
+        // Max pages 100 * 500 = 50,000 buyurtma
+        serverCache.orders = await fetchAllPaginated('getOrder', 'order', 500, 100, { startDate, endDate });
+        console.log(`   ✅ ${serverCache.orders.length} ta buyurtma`);
+
+        // 2. Mahsulotlar
+        console.log('📦 Mahsulotlar yuklanmoqda...');
+        serverCache.products = await fetchAllPaginated('getProduct', 'product', 500);
+        console.log(`   ✅ ${serverCache.products.length} ta mahsulot`);
+
+        // 3. Mijozlar
+        console.log('👥 Mijozlar yuklanmoqda...');
+        serverCache.clients = await fetchAllPaginated('getClient', 'client', 500);
+        console.log(`   ✅ ${serverCache.clients.length} ta mijoz`);
+
+        // 4. Qarzlar (Balance)
+        console.log('💰 Qarzlar yuklanmoqda...');
+        serverCache.balances = await fetchAllPaginated('getBalance', 'balance', 1000);
+        console.log(`   ✅ ${serverCache.balances.length} ta balance`);
+
+        // 5. To'lovlar
+        console.log('💳 Tolovlar yuklanmoqda...');
+        serverCache.payments = await fetchAllPaginated('getPayment', 'payment', 1000);
+        console.log(`   ✅ ${serverCache.payments.length} ta to'lov`);
+
+        // 6. Prixodlar (tan narx uchun)
+        console.log('📥 Prixodlar yuklanmoqda...');
+        // Max pages 50 * 500 = 25,000 prixod
+        serverCache.purchases = await fetchAllPaginated('getPurchase', 'warehouse', 500, 50);
+        console.log(`   ✅ ${serverCache.purchases.length} ta prixod`);
+
+        // 6.5. Stock (ostatka)
+        console.log('📦 Stock yuklanmoqda...');
+        const stockRes = await apiRequest('getStock', { limit: 500 });
+        serverCache.stock = stockRes?.result?.warehouse || [];
+        console.log(`   ✅ ${serverCache.stock.length} ta sklad`);
+
+        // 7. Narx turlari
+        console.log('💵 Narx turlari yuklanmoqda...');
+        const priceTypesRes = await apiRequest('getPriceType', {});
+        serverCache.priceTypes = priceTypesRes?.result?.priceType || [];
+        console.log(`   ✅ ${serverCache.priceTypes.length} ta narx turi`);
+
+        // 8. Agentlar
+        console.log('🧑‍💼 Agentlar yuklanmoqda...');
+        const agentsRes = await apiRequest('getAgent', { page: 1, limit: 100 });
+        serverCache.agents = agentsRes?.result?.agent || [];
+        console.log(`   ✅ ${serverCache.agents.length} ta agent`);
+
+        // 8.5. Web paneldan transactions + SROK ma'lumotlarini olish
+        console.log('📅 Srok ma\'lumotlari yuklanmoqda (web panel)...');
+        const webLoggedIn = await webLogin();
+        if (webLoggedIn) {
+            serverCache.transactions = await fetchTransactionsData();
+        } else {
+            console.log('   ⚠️ Web login muvaffaqiyatsiz, srok eski hisoblanadi');
+        }
+
+        // 9. Statistikani hisoblash
+        console.log('📊 Statistika hisoblanmoqda...');
+        serverCache.stats = calculateStats();
+
+        serverCache.lastUpdate = new Date();
+        const duration = ((Date.now() - startTime) / 1000).toFixed(1);
+
+        console.log('');
+        console.log('╔════════════════════════════════════════════════╗');
+        console.log(`║  ✅ CACHE YANGILANDI (${duration}s)                  ║`);
+        console.log(`║  📅 ${serverCache.lastUpdate.toLocaleString('uz-UZ')}         ║`);
+        console.log('╚════════════════════════════════════════════════╝');
+        console.log('');
+
+    } catch (error) {
+        console.error('❌ Cache yangilash xatosi:', error);
+        serverCache.error = error.message;
+    } finally {
+        serverCache.isLoading = false;
+    }
+}
+
+// Statistikani hisoblash
+function calculateStats() {
+    const USD_RATE = 12200;
+    const orders = serverCache.orders || [];
+    const products = serverCache.products || [];
+    const clients = serverCache.clients || [];
+    const balances = serverCache.balances || [];
+    const purchases = serverCache.purchases || [];
+
+    // Tan narxlarni hisoblash
+    const costPrices = {};
+    purchases.forEach(p => {
+        (p.detail || []).forEach(item => {
+            const productId = item.SD_id;
+            const rawPrice = parseFloat(item.price) || 0;
+            if (rawPrice <= 0) return;
+
+            const isUSD = rawPrice < 100;
+            const costPriceUZS = isUSD ? rawPrice * USD_RATE : rawPrice;
+
+            if (!costPrices[productId] || costPrices[productId].date < p.date) {
+                costPrices[productId] = {
+                    name: item.name,
+                    costPriceUZS,
+                    currency: isUSD ? 'USD' : 'UZS',
+                    date: p.date
+                };
+            }
+        });
+    });
+
+    // Dollar narx turlari
+    const dollarPriceTypes = new Set(['d0_7', 'd0_8', 'd0_11', 'd0_9', 'd0_6']);
+    (serverCache.priceTypes || []).forEach(pt => {
+        if (pt.name && (pt.name.includes('$') || pt.name.toLowerCase().includes('dollar'))) {
+            dollarPriceTypes.add(pt.SD_id);
+        }
+    });
+
+    // Har bir davr uchun statistika hisoblash
+    const periods = ['today', 'yesterday', 'week', 'month', 'year'];
+    const stats = {};
+
+    periods.forEach(period => {
+        const dateRange = getDateRange(period);
+        const filteredOrders = filterOrdersByDate(orders, dateRange);
+
+        let totalSalesUZS = 0;
+        let totalSalesUSD = 0;
+        let totalProfitUZS = 0;
+        let totalProfitUSD = 0;
+        const activeClients = new Set();
+
+        filteredOrders.forEach(order => {
+            // Qaytarishlarni o'tkazib yuborish
+            if (order.status === 4 || order.status === 5) return;
+            const returnsSumma = parseFloat(order.totalReturnsSumma) || 0;
+            const totalSumma = parseFloat(order.totalSumma) || 0;
+            if (returnsSumma > 0 && returnsSumma === totalSumma) return;
+
+            const sum = totalSumma || parseFloat(order.totalSummaAfterDiscount) || 0;
+            const paymentTypeId = order.paymentType?.SD_id;
+            const priceTypeId = order.priceType?.SD_id;
+
+            // Aktiv mijozlar
+            if (order.client?.SD_id) activeClients.add(order.client.SD_id);
+
+            // Buyurtma dollar yoki so'mda ekanligini aniqlash
+            const isUsdOrder = paymentTypeId === 'd0_4' || dollarPriceTypes.has(priceTypeId);
+
+            // Valyutani aniqlash
+            if (isUsdOrder) {
+                totalSalesUSD += sum;
+            } else {
+                totalSalesUZS += sum;
+            }
+
+            // Foyda hisoblash - valyuta bo'yicha alohida
+            (order.orderProducts || []).forEach(item => {
+                const productId = item.product?.SD_id;
+                const quantity = parseFloat(item.quantity) || 0;
+                const rawSumma = parseFloat(item.summa) || 0;
+
+                if (isUsdOrder) {
+                    // Dollar buyurtma - foydani USD da hisoblash
+                    const costPriceUSD = costPrices[productId]?.currency === 'USD'
+                        ? (costPrices[productId]?.costPriceUZS || 0) / USD_RATE
+                        : (costPrices[productId]?.costPriceUZS || 0) / USD_RATE;
+
+                    if (costPriceUSD > 0) {
+                        const profit = rawSumma - (costPriceUSD * quantity);
+                        if (profit > 0 && profit <= rawSumma * 0.40) {
+                            totalProfitUSD += profit;
+                        } else if (profit > rawSumma * 0.40) {
+                            totalProfitUSD += rawSumma * 0.15;
+                        }
+                    } else {
+                        totalProfitUSD += rawSumma * 0.15;
+                    }
+                } else {
+                    // So'm buyurtma - foydani UZS da hisoblash
+                    const costPriceUZS = costPrices[productId]?.costPriceUZS || 0;
+
+                    if (costPriceUZS > 0) {
+                        const profit = rawSumma - (costPriceUZS * quantity);
+                        if (profit > 0 && profit <= rawSumma * 0.40) {
+                            totalProfitUZS += profit;
+                        } else if (profit > rawSumma * 0.40) {
+                            totalProfitUZS += rawSumma * 0.15;
+                        }
+                    } else {
+                        totalProfitUZS += rawSumma * 0.15;
+                    }
+                }
+            });
+        });
+
+        // Iroda agentlari hisoblash
+        const irodaAgentIds = new Set([
+            'd0_2', 'd0_6', 'd0_7', 'd0_8', 'd0_10', 'd0_11',
+            'd0_19', 'd0_20', 'd0_22', 'd0_24', 'd0_25', 'd0_28'
+        ]);
+        let irodaSalesUZS = 0;
+        let irodaSalesUSD = 0;
+        let irodaOrders = 0;
+
+        filteredOrders.forEach(order => {
+            const agentId = order.agent?.SD_id;
+            if (agentId && irodaAgentIds.has(agentId)) {
+                const orderStatus = order.status;
+                const totalSumma = parseFloat(order.totalSumma) || 0;
+                const returnsSumma = parseFloat(order.totalReturnsSumma) || 0;
+                if (orderStatus === 4 || orderStatus === 5 || (returnsSumma > 0 && returnsSumma === totalSumma)) return;
+
+                const sum = totalSumma;
+                const paymentTypeId = order.paymentType?.SD_id;
+                if (paymentTypeId === 'd0_4') {
+                    irodaSalesUSD += sum;
+                } else {
+                    irodaSalesUZS += sum;
+                }
+                irodaOrders++;
+            }
+        });
+
+        stats[period] = {
+            totalSalesUZS,
+            totalSalesUSD,
+            totalOrders: filteredOrders.length,
+            totalClientsOKB: clients.length,
+            totalClientsAKB: activeClients.size,
+            totalProducts: products.length,
+            totalProfitUZS,
+            totalProfitUSD: Math.round(totalProfitUSD),
+            irodaSalesUZS,
+            irodaSalesUSD,
+            irodaOrders
+        };
+    });
+
+    // Qarz statistikasi
+    const debtors = balances.filter(b => b.balance < 0);
+    stats.debts = {
+        totalDebtors: debtors.length,
+        totalDebtUZS: debtors.reduce((sum, d) => sum + Math.abs(d.balance), 0)
+    };
+
+    // Tan narxlarni cache qilish (frontend uchun)
+    serverCache.costPrices = costPrices;
+
+    return stats;
+}
+
+// Lokal sanani formatlash (timezone muammosini hal qilish)
+function formatLocalDate(date) {
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+// Sana oralig'ini olish
+function getDateRange(period) {
+    const now = new Date();
+    const endDate = formatLocalDate(now);
+    let startDate;
+
+    switch (period) {
+        case 'today': startDate = endDate; break;
+        case 'yesterday':
+            const yesterday = new Date(now);
+            yesterday.setDate(yesterday.getDate() - 1);
+            startDate = formatLocalDate(yesterday);
+            return { startDate, endDate: startDate }; // Faqat kecha
+        case 'week':
+            const weekAgo = new Date(now);
+            weekAgo.setDate(weekAgo.getDate() - 7);
+            startDate = formatLocalDate(weekAgo);
+            break;
+        case 'month':
+            const monthAgo = new Date(now);
+            monthAgo.setMonth(monthAgo.getMonth() - 1);
+            startDate = formatLocalDate(monthAgo);
+            break;
+        case 'year':
+            const yearAgo = new Date(now);
+            yearAgo.setFullYear(yearAgo.getFullYear() - 1);
+            startDate = formatLocalDate(yearAgo);
+            break;
+        default: startDate = endDate;
+    }
+
+    return { startDate, endDate };
+}
+
+// Buyurtmalarni sana bo'yicha filtrlash
+function filterOrdersByDate(orders, { startDate, endDate }) {
+    return orders.filter(order => {
+        const orderDate = (order.dateCreate || order.dateDocument || '').split('T')[0].split(' ')[0];
+        return orderDate >= startDate && orderDate <= endDate;
+    });
+}
+
+// =============================================================================
+// 🌐 CACHE API ENDPOINTS
+// =============================================================================
+
+// Cache holati
+app.get('/api/cache/status', (req, res) => {
+    res.json({
+        status: true,
+        hasData: !!serverCache.orders,
+        lastUpdate: serverCache.lastUpdate,
+        isLoading: serverCache.isLoading,
+        error: serverCache.error,
+        counts: {
+            orders: serverCache.orders?.length || 0,
+            products: serverCache.products?.length || 0,
+            clients: serverCache.clients?.length || 0,
+            balances: serverCache.balances?.length || 0,
+            payments: serverCache.payments?.length || 0
+        }
+    });
+});
+
+// Statistika endpoint (TEZKOR - cache'dan)
+app.get('/api/cache/stats/:period', (req, res) => {
+    const period = req.params.period || 'today';
+    const { startDate, endDate } = req.query;
+
+    // Custom sana oraligi
+    if (period === 'custom' && startDate && endDate) {
+        if (!serverCache.orders) {
+            return res.json({ status: false, error: 'Cache hali tayyor emas' });
+        }
+
+        // Custom statistikani hisoblash
+        const orders = filterOrdersByDate(serverCache.orders, { startDate, endDate });
+        const stats = calculateStatsForOrders(orders);
+
+        return res.json({
+            status: true,
+            result: stats,
+            lastUpdate: serverCache.lastUpdate
+        });
+    }
+
+    if (!serverCache.stats || !serverCache.stats[period]) {
+        return res.json({
+            status: false,
+            error: 'Cache hali tayyor emas',
+            isLoading: serverCache.isLoading
+        });
+    }
+
+    res.json({
+        status: true,
+        result: serverCache.stats[period],
+        lastUpdate: serverCache.lastUpdate
+    });
+});
+
+// Buyurtmalar (period bilan)
+app.get('/api/cache/orders/:period', (req, res) => {
+    const period = req.params.period || 'today';
+
+    if (!serverCache.orders) {
+        return res.json({ status: false, error: 'Cache hali tayyor emas' });
+    }
+
+    const dateRange = getDateRange(period);
+    const orders = filterOrdersByDate(serverCache.orders, dateRange);
+
+    res.json({
+        status: true,
+        result: { order: orders },
+        total: orders.length,
+        lastUpdate: serverCache.lastUpdate
+    });
+});
+
+// Barcha buyurtmalar
+app.get('/api/cache/orders', (req, res) => {
+    if (!serverCache.orders) {
+        return res.json({ status: false, error: 'Cache hali tayyor emas' });
+    }
+
+    res.json({
+        status: true,
+        result: { order: serverCache.orders },
+        total: serverCache.orders.length,
+        lastUpdate: serverCache.lastUpdate
+    });
+});
+
+// Qarzlar
+app.get('/api/cache/balances', (req, res) => {
+    if (!serverCache.balances) {
+        return res.json({ status: false, error: 'Cache hali tayyor emas' });
+    }
+
+    res.json({
+        status: true,
+        result: { balance: serverCache.balances },
+        total: serverCache.balances.length,
+        lastUpdate: serverCache.lastUpdate
+    });
+});
+
+// Mijozlar
+app.get('/api/cache/clients', (req, res) => {
+    if (!serverCache.clients) {
+        return res.json({ status: false, error: 'Cache hali tayyor emas' });
+    }
+
+    res.json({
+        status: true,
+        result: { client: serverCache.clients },
+        total: serverCache.clients.length,
+        lastUpdate: serverCache.lastUpdate
+    });
+});
+
+// Mahsulotlar
+app.get('/api/cache/products', (req, res) => {
+    if (!serverCache.products) {
+        return res.json({ status: false, error: 'Cache hali tayyor emas' });
+    }
+
+    res.json({
+        status: true,
+        result: { product: serverCache.products },
+        total: serverCache.products.length,
+        lastUpdate: serverCache.lastUpdate
+    });
+});
+
+// Tan narxlar (prixodlardan)
+app.get('/api/cache/purchases', (req, res) => {
+    if (!serverCache.purchases) {
+        return res.json({ status: false, error: 'Cache hali tayyor emas' });
+    }
+
+    res.json({
+        status: true,
+        result: { warehouse: serverCache.purchases },
+        total: serverCache.purchases.length,
+        lastUpdate: serverCache.lastUpdate
+    });
+});
+
+// Stock (ostatka)
+app.get('/api/cache/stock', (req, res) => {
+    if (!serverCache.stock) {
+        return res.json({ status: false, error: 'Cache hali tayyor emas' });
+    }
+
+    res.json({
+        status: true,
+        result: { warehouse: serverCache.stock },
+        total: serverCache.stock.length,
+        lastUpdate: serverCache.lastUpdate
+    });
+});
+
+// Tan narxlar (server-side hisoblangan)
+app.get('/api/cache/costprices', (req, res) => {
+    if (!serverCache.costPrices) {
+        return res.json({ status: false, error: 'Cache hali tayyor emas' });
+    }
+
+    res.json({
+        status: true,
+        result: serverCache.costPrices,
+        total: Object.keys(serverCache.costPrices).length,
+        lastUpdate: serverCache.lastUpdate
+    });
+});
+
+// To'lovlar
+app.get('/api/cache/payments', (req, res) => {
+    if (!serverCache.payments) {
+        return res.json({ status: false, error: 'Cache hali tayyor emas' });
+    }
+
+    res.json({
+        status: true,
+        result: { payment: serverCache.payments },
+        total: serverCache.payments.length,
+        lastUpdate: serverCache.lastUpdate
+    });
+});
+
+// Agentlar
+app.get('/api/cache/agents', (req, res) => {
+    if (!serverCache.agents) {
+        return res.json({ status: false, error: 'Cache hali tayyor emas' });
+    }
+
+    res.json({
+        status: true,
+        result: { agent: serverCache.agents },
+        total: serverCache.agents.length,
+        lastUpdate: serverCache.lastUpdate
+    });
+});
+
+// Agentlar
+app.get('/api/cache/agents', (req, res) => {
+    if (!serverCache.agents) {
+        return res.json({ status: false, error: 'Cache hali tayyor emas' });
+    }
+
+    res.json({
+        status: true,
+        result: { agent: serverCache.agents },
+        total: serverCache.agents.length,
+        lastUpdate: serverCache.lastUpdate
+    });
+});
+
+// Agent bo'yicha qarzdorlik (srok bilan) - WEB PANELDAN HAQIQIY SROK
+app.get('/api/cache/agentDebts', (req, res) => {
+    if (!serverCache.balances) {
+        return res.json({ status: false, error: 'Cache hali tayyor emas' });
+    }
+
+    const currency = req.query.currency || 'all'; // all, som, dollar
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    // Transactions dan srok mapping yaratish (clientId -> srok data)
+    const clientSrokMap = {};
+    const clientAgentFromTxn = {}; // clientId -> agentName (from transactions)
+    if (serverCache.transactions && Array.isArray(serverCache.transactions)) {
+        serverCache.transactions.forEach(txn => {
+            if (txn.clientId) {
+                clientSrokMap[txn.clientId] = {
+                    srokDate: txn.srokDate || '',
+                    overdueDays: txn.overdueDays || 0,
+                    isOverdue: txn.isOverdue || false,
+                    daysLeft: 0
+                };
+                // daysLeft hisoblash
+                if (txn.srokDate && !txn.isOverdue) {
+                    const expDate = new Date(txn.srokDate);
+                    expDate.setHours(0, 0, 0, 0);
+                    const diff = Math.floor((expDate - today) / (1000 * 60 * 60 * 24));
+                    clientSrokMap[txn.clientId].daysLeft = Math.max(0, diff);
+                }
+                if (txn.agentName) {
+                    clientAgentFromTxn[txn.clientId] = txn.agentName;
+                }
+            }
+        });
+        console.log(`📊 agentDebts: ${Object.keys(clientSrokMap).length} ta mijozda srok bor (web panel)`);
+    }
+
+    // Orders dan ham client->agent mapping
+    const clientToAgent = {};
+    if (serverCache.orders) {
+        serverCache.orders.forEach(order => {
+            const clientId = order.client?.SD_id;
+            const agentId = order.agent?.SD_id;
+            if (clientId && agentId) {
+                clientToAgent[clientId] = agentId;
+            }
+        });
+    }
+
+    // Agent nomlari
+    const agentNameMap = {};
+    (serverCache.agents || []).forEach(a => {
+        agentNameMap[a.SD_id] = a.name;
+    });
+    const hardcodedNames = {
+        'd0_2': 'Nilufarxon', 'd0_3': 'Muxtorxon aka Onlem', 'd0_4': 'Ofis',
+        'd0_6': 'Usmonqulov Asadulloh', 'd0_7': 'Axmedova Xalimaxon',
+        'd0_8': 'Abduraxmonov Shuxrat', 'd0_9': 'Abdullayev Abdulhafiz',
+        'd0_10': 'Abduraximova Muxayyoxon', 'd0_11': 'Aliakbar Yusupov',
+        'd0_12': 'Abdulazizxon Aligarh', 'd0_13': 'Bahodirjon',
+        'd0_14': 'Lobarxon', 'd0_19': 'Soliev Ibrohimjon',
+        'd0_20': 'Oybek', 'd0_21': 'Maxmudov Abdulazizxon',
+        'd0_22': 'Tojiboyev Abubakir', 'd0_23': 'Nodirxon Dokon',
+        'd0_24': 'Xolmirzayeva Honzodaxon', 'd0_25': 'Xolmuxamedova Ziroatxon',
+        'd0_26': 'Ubaydullo', 'd0_27': 'Muxtorxon aka Sleppy',
+        'd0_28': 'Matkarimov Bexruz'
+    };
+
+    // Agent name -> agentId reverse mapping (transactions data agentName beradi)
+    const agentNameToId = {};
+    Object.keys(agentNameMap).forEach(id => { agentNameToId[agentNameMap[id]] = id; });
+    Object.keys(hardcodedNames).forEach(id => { agentNameToId[hardcodedNames[id]] = id; });
+
+    // 2. Agentlar bo'yicha guruhlab hisoblash
+    const agentDebts = {};
+
+    serverCache.balances.forEach(b => {
+        const byCurrency = b['by-currency'] || [];
+        let somDebt = 0;
+        let dollarDebt = 0;
+
+        byCurrency.forEach(c => {
+            const amount = parseFloat(c.amount) || 0;
+            if (c.currency_id === 'd0_2') somDebt = amount;
+            else if (c.currency_id === 'd0_4') dollarDebt = amount;
+        });
+
+        // Currency filtr
+        let shouldInclude = false;
+        if (currency === 'som' && somDebt < 0) shouldInclude = true;
+        else if (currency === 'dollar' && dollarDebt < 0) shouldInclude = true;
+        else if (currency === 'all' && (somDebt < 0 || dollarDebt < 0)) shouldInclude = true;
+
+        if (!shouldInclude) return;
+
+        const clientId = b.SD_id;
+
+        // Agent aniqlash: 1) orders dan, 2) transactions dan agentName orqali
+        let agentId = clientToAgent[clientId] || 'unknown';
+        if (agentId === 'unknown' && clientAgentFromTxn[clientId]) {
+            // Transactions dan agentName orqali agentId topish
+            const txnAgentName = clientAgentFromTxn[clientId];
+            if (agentNameToId[txnAgentName]) {
+                agentId = agentNameToId[txnAgentName];
+            }
+        }
+        const agentName = agentNameMap[agentId] || hardcodedNames[agentId] ||
+            clientAgentFromTxn[clientId] || `Agent ${agentId}`;
+
+        if (!agentDebts[agentId]) {
+            agentDebts[agentId] = {
+                name: agentName, id: agentId,
+                totalSom: 0, totalDollar: 0, clientCount: 0, clients: []
+            };
+        }
+
+        // SROK - web panel dan haqiqiy ma'lumot
+        const srokData = clientSrokMap[clientId] || {};
+        const srokDate = srokData.srokDate || '';
+        const overdueDays = srokData.overdueDays || 0;
+        const daysLeft = srokData.daysLeft || 0;
+        const isOverdue = srokData.isOverdue || false;
+
+        agentDebts[agentId].totalSom += somDebt;
+        agentDebts[agentId].totalDollar += dollarDebt;
+        agentDebts[agentId].clientCount++;
+        agentDebts[agentId].clients.push({
+            clientId, name: b.name || 'Noma\'lum',
+            somDebt, dollarDebt,
+            srokDate, overdueDays, daysLeft, isOverdue
+        });
+    });
+
+    // Tartiblash
+    let sortedAgents;
+    if (currency === 'som') {
+        sortedAgents = Object.values(agentDebts).sort((a, b) => a.totalSom - b.totalSom);
+    } else {
+        sortedAgents = Object.values(agentDebts).sort((a, b) => a.totalDollar - b.totalDollar);
+    }
+
+    res.json({
+        status: true,
+        result: { agents: sortedAgents },
+        totalSom: sortedAgents.reduce((s, a) => s + a.totalSom, 0),
+        totalDollar: sortedAgents.reduce((s, a) => s + a.totalDollar, 0),
+        lastUpdate: serverCache.lastUpdate
+    });
+});
+
+// Srok (muddatli qarz) ma'lumotlari - CACHE dan hisoblash
+app.post('/api/balanceWithSrok', (req, res) => {
+    const { agentId } = req.body;
+
+    if (!serverCache.orders || !serverCache.balances) {
+        return res.json({ status: false, error: 'Cache hali tayyor emas' });
+    }
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    // 1. Mijoz -> Agent mapping (buyurtmalardan)
+    const clientToAgent = {};
+    const clientLastDebtDate = {}; // Mijozning eng oxirgi debtDateExp
+
+    serverCache.orders.forEach(order => {
+        const clientId = order.client?.SD_id;
+        const orderAgentId = order.agent?.SD_id;
+        const debtDateExp = order.debtDateExp;
+
+        if (clientId && orderAgentId) {
+            clientToAgent[clientId] = orderAgentId;
+        }
+
+        // Eng oxirgi debtDateExp ni saqlash
+        if (clientId && debtDateExp) {
+            if (!clientLastDebtDate[clientId] || debtDateExp > clientLastDebtDate[clientId]) {
+                clientLastDebtDate[clientId] = debtDateExp;
+            }
+        }
+    });
+
+    // 2. Balanslardan faqat shu agent mijozlarini olish
+    const clients = [];
+
+    serverCache.balances.forEach(b => {
+        const clientId = b.SD_id;
+        const clientAgent = clientToAgent[clientId];
+
+        // Agent filtri
+        if (agentId) {
+            if (agentId === 'unknown') {
+                // 'unknown' = agenti aniqlanmagan mijozlar
+                if (clientAgent) return; // Agenti bor mijozlarni o'tkazib yuborish
+            } else {
+                if (clientAgent !== agentId) return;
+            }
+        }
+
+        // Faqat qarzdorlar (manfiy balans)
+        const balance = parseFloat(b.balance) || 0;
+        if (balance >= 0) return;
+
+        // Valyuta bo'yicha ajratish
+        let balanceCash = 0;
+        let balanceDollar = 0;
+        (b['by-currency'] || []).forEach(c => {
+            const amount = parseFloat(c.amount) || 0;
+            if (c.currency_id === 'd0_4') {
+                balanceDollar = amount;
+            } else {
+                balanceCash += amount;
+            }
+        });
+
+        // Srok hisoblash
+        const debtDate = clientLastDebtDate[clientId];
+        let srokDate = '';
+        let overdueDays = 0;
+        let daysLeft = 0;
+        let isOverdue = false;
+
+        if (debtDate) {
+            srokDate = debtDate;
+            const expDate = new Date(debtDate);
+            expDate.setHours(0, 0, 0, 0);
+            const diffDays = Math.floor((today - expDate) / (1000 * 60 * 60 * 24));
+
+            if (diffDays > 0) {
+                isOverdue = true;
+                overdueDays = diffDays;
+            } else {
+                daysLeft = Math.abs(diffDays);
+            }
+        }
+
+        clients.push({
+            clientId,
+            name: b.name || 'Noma\'lum',
+            balanceTotal: balanceCash,
+            balanceCash,
+            balanceDollar,
+            srokDate,
+            overdueDays,
+            daysLeft,
+            isOverdue
+        });
+    });
+
+    // Dollar bo'yicha tartiblash (eng katta qarz birinchi)
+    clients.sort((a, b) => a.balanceDollar - b.balanceDollar);
+
+    res.json({
+        status: true,
+        result: { clients },
+        total: clients.length,
+        lastUpdate: serverCache.lastUpdate
+    });
+});
+
+// Cache ni majburan yangilash
+app.post('/api/cache/refresh', async (req, res) => {
+    console.log('🔄 Manual cache refresh so\'ralmoqda...');
+    refreshCache(); // async lekin kutmaymiz
+    res.json({ status: true, message: 'Cache yangilanmoqda' });
+});
 
 // API Proxy endpoint
 app.post('/api/proxy', async (req, res) => {
@@ -362,11 +1447,24 @@ app.get('/', (req, res) => {
 // Serverni ishga tushirish
 app.listen(PORT, () => {
     console.log('');
-    console.log('╔════════════════════════════════════════════════╗');
-    console.log('║     🏥 Sales Doctor Analytics Dashboard        ║');
-    console.log('╠════════════════════════════════════════════════╣');
-    console.log(`║  🌐 Server: http://localhost:${PORT}              ║`);
-    console.log('║  📊 Dashboard tayyor!                          ║');
-    console.log('╚════════════════════════════════════════════════╝');
+    console.log('╔════════════════════════════════════════════════════════╗');
+    console.log('║     🏥 Sales Doctor Analytics Dashboard                ║');
+    console.log('║     🚀 CACHING SERVER v2.0                             ║');
+    console.log('╠════════════════════════════════════════════════════════╣');
+    console.log(`║  🌐 Server: http://localhost:${PORT}                      ║`);
+    console.log('║  📊 Dashboard tayyor!                                  ║');
+    console.log('║  ⚡ Cache: Har 10 daqiqada avtomatik yangilanadi       ║');
+    console.log('╚════════════════════════════════════════════════════════╝');
     console.log('');
+
+    // Server boshlanishida cache ni yuklash
+    console.log('🚀 Birinchi cache yuklanmoqda...');
+    refreshCache();
+
+    // Har 10 daqiqada avtomatik yangilash
+    setInterval(() => {
+        console.log('⏰ Avtomatik cache yangilash...');
+        refreshCache();
+    }, CACHE_CONFIG.REFRESH_INTERVAL);
 });
+

@@ -2,6 +2,7 @@
  * Sales Doctor Analytics Dashboard
  * Main Application Logic with Real API Integration
  */
+console.log('📊 app.js v54 yuklandi!');
 
 class SalesDoctorApp {
     constructor() {
@@ -22,7 +23,54 @@ class SalesDoctorApp {
             dashboardDays: 30       // Dashboard uchun kunlar soni (legacy)
         };
 
+        // 💾 LocalStorage cache kalitlari
+        this.CACHE_KEYS = {
+            ORDERS: 'sd_cache_orders',
+            STATS: 'sd_cache_stats',
+            DEBTS: 'sd_cache_debts',
+            TIMESTAMP: 'sd_cache_timestamp'
+        };
+        this.CACHE_TTL = 5 * 60 * 1000; // 5 daqiqa (milliseconds)
+
         this.init();
+    }
+
+    // 💾 LocalStorage cache metodlari
+    saveToCache(key, data) {
+        try {
+            localStorage.setItem(key, JSON.stringify(data));
+            localStorage.setItem(this.CACHE_KEYS.TIMESTAMP, Date.now().toString());
+            console.log(`💾 Cache saqlandi: ${key}`);
+        } catch (e) {
+            console.warn('Cache saqlash xatosi:', e);
+        }
+    }
+
+    loadFromCache(key) {
+        try {
+            const data = localStorage.getItem(key);
+            if (!data) return null;
+
+            const timestamp = parseInt(localStorage.getItem(this.CACHE_KEYS.TIMESTAMP) || '0');
+            const age = Date.now() - timestamp;
+
+            // Cache 5 daqiqadan eski bo'lsa ham ko'rsatamiz, lekin yangilaymiz
+            console.log(`📂 Cache yuklandi: ${key} (${Math.round(age / 1000)}s oldin)`);
+            return JSON.parse(data);
+        } catch (e) {
+            console.warn('Cache yuklash xatosi:', e);
+            return null;
+        }
+    }
+
+    isCacheFresh() {
+        const timestamp = parseInt(localStorage.getItem(this.CACHE_KEYS.TIMESTAMP) || '0');
+        return (Date.now() - timestamp) < this.CACHE_TTL;
+    }
+
+    getCacheBaseUrl() {
+        const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+        return isLocal ? 'http://localhost:3000' : 'https://sd-analitika-production.up.railway.app';
     }
 
     init() {
@@ -129,13 +177,32 @@ class SalesDoctorApp {
         });
 
         // Period filter buttons
-        document.querySelectorAll('.filter-btn').forEach(btn => {
+        document.querySelectorAll('.filter-btn[data-period]').forEach(btn => {
             btn.addEventListener('click', () => {
                 document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
                 btn.classList.add('active');
                 this.currentPeriod = btn.dataset.period;
                 this.loadDashboard();
             });
+        });
+
+        // Sana oraligi Apply tugmasi
+        document.getElementById('applyDateRange')?.addEventListener('click', () => {
+            const startInput = document.getElementById('startDate');
+            const endInput = document.getElementById('endDate');
+
+            if (startInput?.value && endInput?.value) {
+                this.customStartDate = startInput.value;
+                this.customEndDate = endInput.value;
+                this.currentPeriod = 'custom';
+
+                // Barcha tugmalardan active'ni olib tashlash
+                document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+
+                this.loadDashboard();
+            } else {
+                alert('Iltimos, boshlanish va tugash sanalarini tanlang!');
+            }
         });
 
         // Chart tabs
@@ -209,7 +276,7 @@ class SalesDoctorApp {
 
     saveUsdRate() {
         const rateInput = document.getElementById('usdRateInput');
-        const rate = parseFloat(rateInput?.value) || 12800;
+        const rate = parseFloat(rateInput?.value) || 12200;
 
         if (rate >= 1000 && rate <= 50000) {
             localStorage.setItem('sd_usd_rate', rate);
@@ -226,31 +293,47 @@ class SalesDoctorApp {
         }
     }
 
+    // Lokal sanani formatlash (timezone muammosini hal qilish)
+    formatLocalDate(date) {
+        return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+    }
+
     // Get date range based on period
     getDateRange() {
         const now = new Date();
         let startDate, endDate;
 
-        endDate = now.toISOString().split('T')[0];
+        endDate = this.formatLocalDate(now);
 
         switch (this.currentPeriod) {
             case 'today':
                 startDate = endDate;
                 break;
+            case 'yesterday':
+                const yesterday = new Date(now);
+                yesterday.setDate(yesterday.getDate() - 1);
+                startDate = this.formatLocalDate(yesterday);
+                endDate = startDate; // Faqat kecha
+                break;
             case 'week':
                 const weekAgo = new Date(now);
                 weekAgo.setDate(weekAgo.getDate() - 7);
-                startDate = weekAgo.toISOString().split('T')[0];
+                startDate = this.formatLocalDate(weekAgo);
                 break;
             case 'month':
                 const monthAgo = new Date(now);
                 monthAgo.setMonth(monthAgo.getMonth() - 1);
-                startDate = monthAgo.toISOString().split('T')[0];
+                startDate = this.formatLocalDate(monthAgo);
                 break;
             case 'year':
                 const yearAgo = new Date(now);
                 yearAgo.setFullYear(yearAgo.getFullYear() - 1);
-                startDate = yearAgo.toISOString().split('T')[0];
+                startDate = this.formatLocalDate(yearAgo);
+                break;
+            case 'custom':
+                // Custom sana oraligi
+                startDate = this.customStartDate || endDate;
+                endDate = this.customEndDate || endDate;
                 break;
             default:
                 startDate = endDate;
@@ -259,44 +342,190 @@ class SalesDoctorApp {
         return { startDate, endDate };
     }
 
-    // Dashboard Loading
-    async loadDashboard() {
-        this.showLoading();
+    // ⏱️ Timeout bilan fetch - server javob bermasa hang qilmasligi uchun
+    async fetchWithTimeout(url, timeoutMs = 5000) {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+        try {
+            const response = await fetch(url, { signal: controller.signal });
+            clearTimeout(timeoutId);
+            return response;
+        } catch (error) {
+            clearTimeout(timeoutId);
+            throw error;
+        }
+    }
 
-        // Har safar yangi ma'lumot olish uchun cache tozalash
-        this.cachedCostPrices = null;
+    // Dashboard Loading - 🚀 SERVER CACHE ORQALI TEZKOR YUKLASH
+    async loadDashboard() {
+        // Server cache URL - lokal yoki production
+        const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+        const CACHE_BASE_URL = isLocal
+            ? 'http://localhost:3000'
+            : 'https://sd-analitika-production.up.railway.app';
 
         try {
-            if (this.useRealData && this.api.isConfigured()) {
-                // 🚀 OPTIMIZATSIYA: Faqat statistika - TEZKOR yuklash
-                console.log('⚡ TEZKOR rejim: Faqat statistika yuklanmoqda...');
-                await this.loadRealStats();
+            console.log('🚀 Server cache dan yuklash...');
+            this.showLoading();
 
-                // Loading ni yashiramiz - statistika tayyor!
+            // 1️⃣ Avval server cache holatini tekshirish (5 sek timeout)
+            const statusRes = await this.fetchWithTimeout(`${CACHE_BASE_URL}/api/cache/status`, 5000);
+            const statusData = await statusRes.json();
+
+            if (!statusData.hasData) {
+                console.log('⏳ Server cache hali tayyor emas, eski usulda yuklaymiz...');
+                try {
+                    await this.loadRealStats();
+                } catch (e) {
+                    console.error('loadRealStats xatosi:', e);
+                    this.showEmptyStats();
+                }
                 this.hideLoading();
+                return;
+            }
 
-                // 🔄 Qolgan qismlar background da yuklanadi (user kutmaydi)
-                console.log('🔄 Background yuklash: Grafiklar, jadvallar, aktivlik...');
-                this.loadRealCharts().catch(e => console.error('Chart xatosi:', e));
-                this.loadRealTables().catch(e => console.error('Table xatosi:', e));
-                this.loadRealActivity().catch(e => console.error('Activity xatosi:', e));
-            } else {
-                // Demo data yuklash
-                await this.loadStats();
-                await this.loadCharts();
-                await this.loadTables();
-                await this.loadActivity();
+            console.log(`✅ Server cache tayyor: ${statusData.counts.orders} buyurtma`);
+
+            // 2️⃣ Statistikani cache dan olish (TEZKOR!)
+            const statsRes = await this.fetchWithTimeout(`${CACHE_BASE_URL}/api/cache/stats/${this.currentPeriod}`, 5000);
+            const statsData = await statsRes.json();
+
+            if (statsData.status && statsData.result) {
+                const stats = statsData.result;
+
+                // UI yangilash
+                this.animateValue('totalSalesUZS', 0, stats.totalSalesUZS, 1500, this.formatCurrency.bind(this));
+                this.animateValue('totalSalesUSD', 0, stats.totalSalesUSD, 1500, this.formatNumber.bind(this));
+                this.animateValue('totalOrders', 0, stats.totalOrders, 1200, this.formatNumber.bind(this));
+                this.animateValue('totalClientsAKB', 0, stats.totalClientsAKB, 1000, this.formatNumber.bind(this));
+                this.animateValue('totalProducts', 0, stats.totalProducts, 800, this.formatNumber.bind(this));
+
+                // Foyda
+                const profitUZSEl = document.getElementById('totalProfitUZS');
+                const profitUSDEl = document.getElementById('totalProfitUSD');
+                if (profitUZSEl) profitUZSEl.textContent = Math.round(stats.totalProfitUZS).toLocaleString('ru-RU');
+                if (profitUSDEl) profitUSDEl.textContent = '$' + stats.totalProfitUSD.toLocaleString();
+
+                // Iroda agentlari
+                const formatMln = (value) => {
+                    const abs = Math.abs(value);
+                    return (value < 0 ? '-' : '') + Math.round(abs).toLocaleString('ru-RU');
+                };
+                const irodaUZSEl = document.getElementById('irodaAgentsSalesUZS');
+                const irodaUSDEl = document.getElementById('irodaAgentsSalesUSD');
+                const irodaOrdersEl = document.getElementById('irodaAgentsOrders');
+                if (irodaUZSEl) irodaUZSEl.textContent = formatMln(stats.irodaSalesUZS || 0);
+                if (irodaUSDEl) irodaUSDEl.textContent = (stats.irodaSalesUSD || 0) > 0 ? '$' + (stats.irodaSalesUSD || 0).toLocaleString() : '$0';
+                if (irodaOrdersEl) irodaOrdersEl.textContent = stats.irodaOrders || 0;
+
+                // Cache vaqtini ko'rsatish
+                const lastUpdate = new Date(statsData.lastUpdate);
+                console.log(`📅 Oxirgi yangilanish: ${lastUpdate.toLocaleString('uz-UZ')}`);
+
+                // Sparklines
+                this.createSparkline('salesSparkline', this.demo.getSparklineData(), '#0071e3');
+                this.createSparkline('ordersSparkline', this.demo.getSparklineData(), '#34c759');
+                this.createSparkline('clientsSparkline', this.demo.getSparklineData(), '#af52de');
+                this.createSparkline('productsSparkline', this.demo.getSparklineData(), '#ff9500');
+                this.createSparkline('irodaSparkline', this.demo.getSparklineData(), '#00b4d8');
+                this.createSparkline('profitSparkline', this.demo.getSparklineData(), '#10b981');
+            }
+
+            this.hideLoading();
+
+            // 3️⃣ Background da qolgan elementlarni yuklash
+            this.loadCachedCharts(CACHE_BASE_URL).catch(e => console.error('Chart xatosi:', e));
+            this.loadCachedTables(CACHE_BASE_URL).catch(e => console.error('Table xatosi:', e));
+            this.loadDebtAndPaymentStats();
+
+        } catch (error) {
+            console.error('❌ Server cache xatosi:', error);
+            console.log('📡 Fallback: Eski usulda yuklaymiz...');
+
+            try {
+                // Fallback - eski usul
+                if (this.useRealData && this.api.isConfigured()) {
+                    await this.loadRealStats();
+                    this.loadRealCharts().catch(e => console.error('Chart xatosi:', e));
+                    this.loadRealTables().catch(e => console.error('Table xatosi:', e));
+                } else {
+                    await this.loadStats();
+                    await this.loadCharts();
+                    await this.loadTables();
+                }
+            } catch (fallbackError) {
+                console.error('❌ Fallback ham xato:', fallbackError);
+                this.showEmptyStats();
+            } finally {
                 this.hideLoading();
             }
-        } catch (error) {
-            console.error('Dashboard yuklash xatosi:', error);
-            this.showToast('warning', 'Ogohlantirish', 'API dan ma\'lumot olinmadi, demo rejim');
-            // Fallback to demo data
-            await this.loadStats();
-            await this.loadCharts();
-            await this.loadTables();
-            await this.loadActivity();
-            this.hideLoading();
+        }
+    }
+
+    // 🚀 Cache dan chartlarni yuklash
+    async loadCachedCharts(baseUrl) {
+        try {
+            const ordersRes = await fetch(`${baseUrl}/api/cache/orders/${this.currentPeriod}`);
+            const ordersData = await ordersRes.json();
+
+            if (ordersData.status && ordersData.result?.order) {
+                this.cachedOrders = ordersData.result.order;
+                await this.loadRealCharts();
+            }
+        } catch (e) {
+            console.error('Cached charts xatosi:', e);
+        }
+    }
+
+    // 🚀 Cache dan tablelarni yuklash
+    async loadCachedTables(baseUrl) {
+        try {
+            const ordersRes = await fetch(`${baseUrl}/api/cache/orders/${this.currentPeriod}`);
+            const ordersData = await ordersRes.json();
+
+            if (ordersData.status && ordersData.result?.order) {
+                this.cachedOrders = ordersData.result.order;
+                await this.loadRealTables();
+            }
+        } catch (e) {
+            console.error('Cached tables xatosi:', e);
+        }
+    }
+
+    // 💾 Cache dan statistikani ko'rsatish
+    displayCachedStats(stats) {
+        const updateEl = (id, value) => {
+            const el = document.getElementById(id);
+            if (el) el.textContent = value;
+        };
+
+        if (stats.sales) {
+            updateEl('totalSalesUZS', stats.sales.uzs || '0');
+            updateEl('totalSalesUSD', stats.sales.usd || '0');
+        }
+        updateEl('totalOrders', stats.orders || '0');
+        updateEl('totalClientsOKB', stats.clientsOKB || '0');
+        updateEl('totalClientsAKB', stats.clientsAKB || '0');
+        updateEl('totalProducts', stats.products || '0');
+        updateEl('totalProfitUZS', stats.profitUZS || '0');
+        updateEl('totalProfitUSD', stats.profitUSD || '$0');
+        updateEl('irodaAgentsSalesUZS', stats.irodaUZS || '0');
+        updateEl('irodaAgentsSalesUSD', stats.irodaUSD || '0');
+        updateEl('irodaAgentsOrders', stats.irodaOrders || '0');
+
+        console.log('✅ Cache dan statistika ko\'rsatildi');
+    }
+
+    // 🔄 Orqa fonda yangilash
+    async refreshDashboardInBackground() {
+        try {
+            await this.loadRealStats();
+            this.loadRealCharts().catch(e => console.error('Chart xatosi:', e));
+            this.loadRealTables().catch(e => console.error('Table xatosi:', e));
+            this.loadRealActivity().catch(e => console.error('Activity xatosi:', e));
+            console.log('✅ Dashboard orqa fonda yangilandi');
+        } catch (e) {
+            console.error('Background refresh xatosi:', e);
         }
     }
 
@@ -308,7 +537,23 @@ class SalesDoctorApp {
         try {
             if (this.cachedCostPrices) return this.cachedCostPrices;
 
-            // Barcha prixodlarni olish
+            // 🚀 Server cache dan olish - TEZKOR!
+            const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+            const CACHE_BASE_URL = isLocal
+                ? 'http://localhost:3000'
+                : 'https://sd-analitika-production.up.railway.app';
+
+            const res = await this.fetchWithTimeout(`${CACHE_BASE_URL}/api/cache/costprices`, 5000);
+            const data = await res.json();
+
+            if (data.status && data.result) {
+                this.cachedCostPrices = data.result;
+                console.log(`✅ Tan narxlar (cache): ${data.total} ta`);
+                return data.result;
+            }
+
+            // Fallback - eski usul (agar server cache yo'q bo'lsa)
+            console.log('⚠️ Tan narxlar cache da yo\'q, API dan yuklaymiz...');
             let allPurchases = [];
             for (let page = 1; page <= 10; page++) {
                 const r = await this.api.request('getPurchase', { page, limit: 500 });
@@ -319,22 +564,16 @@ class SalesDoctorApp {
 
             const costPrices = {};
             const USD_RATE = this.getUsdRate();
-            let usdCount = 0;
-            let uzsCount = 0;
 
-            // Barcha prixodlardan narxlarni olish (priceType filtr YO'Q)
             allPurchases.forEach(p => {
                 (p.detail || []).forEach(item => {
                     const productId = item.SD_id;
                     const rawPrice = parseFloat(item.price) || 0;
-
                     if (rawPrice <= 0) return;
 
-                    // Valyutani aniqlash: narx < 100 = USD, >= 100 = UZS
                     const isUSD = rawPrice < 100;
                     const costPriceUZS = isUSD ? rawPrice * USD_RATE : rawPrice;
 
-                    // Eng so'nggi narxni saqlash
                     if (!costPrices[productId] || costPrices[productId].date < p.date) {
                         costPrices[productId] = {
                             name: item.name,
@@ -343,20 +582,15 @@ class SalesDoctorApp {
                             currency: isUSD ? 'USD' : 'UZS',
                             date: p.date
                         };
-                        if (isUSD) usdCount++; else uzsCount++;
                     }
                 });
             });
 
             this.cachedCostPrices = costPrices;
-
-            const totalCount = Object.keys(costPrices).length;
-            console.log(`✅ Tan narxlar: ${totalCount} ta (${uzsCount} so'mda, ${usdCount} dollarda)`);
-
             return costPrices;
         } catch (error) {
             console.error('Tan narxlarni yuklash xatosi:', error);
-            return {};
+            return this.cachedCostPrices || {};
         }
     }
 
@@ -535,6 +769,8 @@ class SalesDoctorApp {
             console.log('📍 Iroda exact:', irodaSales.totalUZS.toLocaleString(), 'so\'m,', irodaSales.totalUSD.toLocaleString(), '$');
             if (irodaUZSEl) irodaUZSEl.textContent = formatMln(irodaSales.totalUZS);
             if (irodaUSDEl) irodaUSDEl.textContent = irodaSales.totalUSD > 0 ? '$' + irodaSales.totalUSD.toLocaleString() : '$0';
+            const irodaOrdersEl = document.getElementById('irodaAgentsOrders');
+            if (irodaOrdersEl) irodaOrdersEl.textContent = irodaSales.matchedOrders;
 
             // ========== JAMI FOYDA HISOBLASH ==========
             const costPrices = await this.fetchCostPrices();
@@ -653,6 +889,25 @@ class SalesDoctorApp {
 
             // Buyurtmalarni cache qilish (chartlar uchun)
             this.cachedOrders = allOrders;
+
+            // 💾 LocalStorage cache ga saqlash (keyingi yuklanishda tez ko'rsatish uchun)
+            const statsToCache = {
+                sales: {
+                    uzs: document.getElementById('totalSalesUZS')?.textContent || '0',
+                    usd: document.getElementById('totalSalesUSD')?.textContent || '0'
+                },
+                orders: document.getElementById('totalOrders')?.textContent || '0',
+                clientsOKB: document.getElementById('totalClientsOKB')?.textContent || '0',
+                clientsAKB: document.getElementById('totalClientsAKB')?.textContent || '0',
+                products: document.getElementById('totalProducts')?.textContent || '0',
+                profitUZS: document.getElementById('totalProfitUZS')?.textContent || '0',
+                profitUSD: document.getElementById('totalProfitUSD')?.textContent || '$0',
+                irodaUZS: document.getElementById('irodaAgentsSalesUZS')?.textContent || '0',
+                irodaUSD: document.getElementById('irodaAgentsSalesUSD')?.textContent || '0',
+                irodaOrders: document.getElementById('irodaAgentsOrders')?.textContent || '0'
+            };
+            this.saveToCache(this.CACHE_KEYS.STATS, statsToCache);
+            console.log('💾 Statistika cache ga saqlandi');
 
         } catch (error) {
             console.error('Real stats yuklash xatosi:', error);
@@ -1068,12 +1323,28 @@ class SalesDoctorApp {
         }
     }
 
-    // Barcha balanslarni olish (getBalance pagination qo'llab-quvvatlamaydi)
+    // Barcha balanslarni olish - CACHE SERVERDAN
     async fetchAllBalances() {
         try {
-            const data = await this.api.request('getBalance', { limit: 5000 });
-            const balances = data.result?.balance || [];
-            console.log(`📊 Jami balanslar: ${balances.length}`);
+            // Avval xotiradagi cache dan
+            if (this._cachedBalances) {
+                console.log(`⚡ Balanslar xotiradan: ${this._cachedBalances.length}`);
+                return this._cachedBalances;
+            }
+            // Cache serverdan olish
+            const baseUrl = this.getCacheBaseUrl();
+            const res = await fetch(`${baseUrl}/api/cache/balances`);
+            const data = await res.json();
+            if (data.status && data.result?.balance) {
+                this._cachedBalances = data.result.balance;
+                console.log(`⚡ Balanslar cache dan: ${this._cachedBalances.length}`);
+                return this._cachedBalances;
+            }
+            // Fallback - API
+            const apiData = await this.api.request('getBalance', { limit: 5000 });
+            const balances = apiData.result?.balance || [];
+            this._cachedBalances = balances;
+            console.log(`📊 Balanslar API dan: ${balances.length}`);
             return balances;
         } catch (e) {
             console.error('Balance olish xatosi:', e);
@@ -1081,8 +1352,25 @@ class SalesDoctorApp {
         }
     }
 
-    // Barcha to'lovlarni pagination bilan olish
+    // Barcha to'lovlarni olish - CACHE SERVERDAN
     async fetchAllPayments() {
+        try {
+            if (this._cachedPayments) {
+                console.log(`⚡ To'lovlar xotiradan: ${this._cachedPayments.length}`);
+                return this._cachedPayments;
+            }
+            const baseUrl = this.getCacheBaseUrl();
+            const res = await fetch(`${baseUrl}/api/cache/payments`);
+            const data = await res.json();
+            if (data.status && data.result?.payment) {
+                this._cachedPayments = data.result.payment;
+                console.log(`⚡ To'lovlar cache dan: ${this._cachedPayments.length}`);
+                return this._cachedPayments;
+            }
+        } catch (e) {
+            console.log('Cache dan to\'lov olish xatosi, API dan olamiz...');
+        }
+        // Fallback - API
         let allPayments = [];
         let page = 1;
         let hasMore = true;
@@ -1991,18 +2279,43 @@ class SalesDoctorApp {
         tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 40px;">Yuklanmoqda...</td></tr>';
 
         try {
-            const ordersRes = await this.api.getOrders({});
-            const orders = ordersRes?.result?.order || [];
+            // Server cache dan period bo'yicha buyurtmalarni olish
+            const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+            const CACHE_BASE_URL = isLocal
+                ? 'http://localhost:3000'
+                : 'https://sd-analitika-production.up.railway.app';
+
+            const ordersRes = await this.fetchWithTimeout(`${CACHE_BASE_URL}/api/cache/orders/${this.currentPeriod}`, 5000);
+            const ordersData = await ordersRes.json();
+            const orders = (ordersData.status && ordersData.result?.order) ? ordersData.result.order : [];
+
+            // Agent nomlarni cache dan olish
+            let agentNameMap = {};
+            try {
+                const agentsRes = await this.fetchWithTimeout(`${CACHE_BASE_URL}/api/cache/agents`, 3000);
+                const agentsData = await agentsRes.json();
+                if (agentsData.status && agentsData.result?.agent) {
+                    agentsData.result.agent.forEach(a => {
+                        agentNameMap[a.SD_id] = a.name;
+                    });
+                }
+            } catch (e) { }
 
             if (orders.length === 0) {
                 tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 40px;">Ma\'lumot topilmadi</td></tr>';
                 return;
             }
 
-            // API da agent endpointi yo'q - shuning uchun expeditor ID ishlatamiz
+            const USD_RATE = this.getUsdRate();
 
-            tbody.innerHTML = orders.map(order => {
-                // Status mapping: 1 = Tasdiqlangan, 3 = Yuklandi, 4 = Возврат, 0 = Kutilmoqda
+            // Sanasi bo'yicha tartiblash (eng yangi birinchi)
+            const sortedOrders = [...orders].sort((a, b) => {
+                const dateA = new Date(a.dateCreate || a.dateDocument || 0);
+                const dateB = new Date(b.dateCreate || b.dateDocument || 0);
+                return dateB - dateA;
+            });
+
+            tbody.innerHTML = sortedOrders.map(order => {
                 const statusMap = {
                     0: { class: 'pending', text: 'Kutilmoqda' },
                     1: { class: 'active', text: 'Tasdiqlangan' },
@@ -2014,14 +2327,16 @@ class SalesDoctorApp {
                 const statusInfo = statusMap[order.status] || { class: 'pending', text: 'Noma\'lum' };
 
                 const clientName = order.client?.clientName || order.client?.clientLegalName || order.client?.name || 'Noma\'lum';
-                // Agent - expeditor dan olish
-                const expeditorId = order.expeditor?.SD_id || order.expeditor?.CS_id;
-                const agentName = order.expeditor?.name || order.expeditor?.firstName ||
-                    order.agent?.name || order.user?.name ||
-                    order.trade?.name || expeditorId || 'Noma\'lum';
+                const agentId = order.agent?.SD_id;
+                const agentName = agentNameMap[agentId] || order.agent?.name || 'Noma\'lum';
                 const date = order.dateCreate ? new Date(order.dateCreate).toLocaleDateString('uz-UZ') :
                     order.date ? new Date(order.date).toLocaleDateString('uz-UZ') : '-';
-                const sum = this.formatCurrency(order.totalSumma || 0);
+
+                const isDollar = this.isUsdOrder(order);
+                const totalSumma = parseFloat(order.totalSumma) || 0;
+                const summaUZS = isDollar ? totalSumma * USD_RATE : totalSumma;
+                const sum = this.formatCurrency(summaUZS);
+                const dollarTag = isDollar ? ' <span style="color: #10b981; font-size: 11px;">($)</span>' : '';
 
                 return `
                     <tr>
@@ -2029,7 +2344,7 @@ class SalesDoctorApp {
                         <td>${date}</td>
                         <td>${clientName}</td>
                         <td>${agentName}</td>
-                        <td><strong>${sum}</strong></td>
+                        <td><strong>${sum}</strong>${dollarTag}</td>
                         <td><span class="status-badge ${statusInfo.class}">${statusInfo.text}</span></td>
                     </tr>
                 `;
@@ -2046,74 +2361,43 @@ class SalesDoctorApp {
         const searchInput = document.getElementById('productSearch');
         if (!grid) return;
 
-        grid.innerHTML = '<div style="text-align: center; padding: 40px; grid-column: 1/-1;">Yuklanmoqda... (Barcha mahsulotlar)</div>';
+        grid.innerHTML = '<div style="text-align: center; padding: 40px; grid-column: 1/-1;">Yuklanmoqda...</div>';
 
         try {
-            // Barcha mahsulotlarni pagination bilan yuklash
-            let allProducts = [];
-            for (let page = 1; page <= 20; page++) {
-                grid.innerHTML = `<div style="text-align: center; padding: 40px; grid-column: 1/-1;">Yuklanmoqda... (Sahifa ${page})</div>`;
-                const res = await this.api.getProducts({ page, limit: 500 });
-                const products = res?.result?.product || [];
-                if (products.length === 0) break;
-                allProducts = allProducts.concat(products);
-                if (products.length < 500) break; // Oxirgi sahifa
-            }
-            console.log('🏷️ Jami mahsulotlar yuklandi:', allProducts.length);
+            // Server cache dan mahsulotlarni olish
+            const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+            const CACHE_BASE_URL = isLocal
+                ? 'http://localhost:3000'
+                : 'https://sd-analitika-production.up.railway.app';
 
-            // Ombor qoldiqlarini yuklash
-            grid.innerHTML = '<div style="text-align: center; padding: 40px; grid-column: 1/-1;">Qoldiqlar yuklanmoqda...</div>';
+            // Mahsulotlar va stock ni parallel yuklash
+            const [productsRes, stockRes] = await Promise.all([
+                this.fetchWithTimeout(`${CACHE_BASE_URL}/api/cache/products`, 5000),
+                this.fetchWithTimeout(`${CACHE_BASE_URL}/api/cache/stock`, 5000)
+            ]);
 
-            // Qoldiq mapping (product_id -> quantity)
+            const productsData = await productsRes.json();
+            const stockData = await stockRes.json();
+
+            const allProducts = (productsData.status && productsData.result?.product) ? productsData.result.product : [];
+            const warehouses = (stockData.status && stockData.result?.warehouse) ? stockData.result.warehouse : [];
+
+            console.log('🏷️ Jami mahsulotlar (cache):', allProducts.length);
+
+            // Stock mapping
             const stockMap = {};
-
-            // 1. Avval mahsulotlarning o'zidan stock olish (ba'zi API larda mahsulotda stock bor)
-            console.log('📦 Mahsulotlardan stock olish...');
-            console.log('📦 Birinchi 2 ta mahsulot:', JSON.stringify(allProducts.slice(0, 2), null, 2));
-
-            allProducts.forEach(item => {
-                const productId = item.SD_id || item.CS_id;
-                // Mahsulotda quantity, stock, balance, ostatka fieldlarini tekshirish
-                const qty = parseFloat(item.quantity) || parseFloat(item.stock) ||
-                    parseFloat(item.balance) || parseFloat(item.ostatka) ||
-                    parseFloat(item.available) || 0;
-                if (productId && qty > 0) {
-                    stockMap[productId] = (stockMap[productId] || 0) + qty;
-                }
+            warehouses.forEach(warehouse => {
+                const products = warehouse.products || [];
+                products.forEach(item => {
+                    const productId = item.SD_id;
+                    const quantity = parseFloat(item.quantity) || 0;
+                    if (productId && quantity > 0) {
+                        stockMap[productId] = (stockMap[productId] || 0) + quantity;
+                    }
+                });
             });
 
-            console.log('📦 Mahsulotlardan olingan stock:', Object.keys(stockMap).length, 'ta');
-
-            // 2. Agar mahsulotlardan stock olmadik, getStock API dan olish
-            if (Object.keys(stockMap).length === 0) {
-                try {
-                    const stockRes = await this.api.getStock({ limit: 500 });
-                    console.log('📦 getStock API javobi:', stockRes);
-
-                    // To'g'ri struktura: result.warehouse[].products[]
-                    const warehouses = stockRes?.result?.warehouse || [];
-                    console.log('📦 Skladlar soni:', warehouses.length);
-
-                    warehouses.forEach(warehouse => {
-                        const products = warehouse.products || [];
-                        console.log(`📦 Sklad ${warehouse.name || warehouse.SD_id}: ${products.length} ta mahsulot`);
-
-                        products.forEach(item => {
-                            const productId = item.SD_id;
-                            const quantity = parseFloat(item.quantity) || 0;
-                            if (productId && quantity > 0) {
-                                stockMap[productId] = (stockMap[productId] || 0) + quantity;
-                            }
-                        });
-                    });
-
-                    console.log('📦 Stock map to\'ldirildi:', Object.keys(stockMap).length, 'ta mahsulot');
-                } catch (stockError) {
-                    console.warn('📦 getStock xatosi:', stockError.message);
-                }
-            }
-
-            console.log('📦 Jami stock yuklandi:', Object.keys(stockMap).length, 'ta mahsulot');
+            console.log('📦 Stock map (cache):', Object.keys(stockMap).length, 'ta mahsulot');
 
             if (allProducts.length === 0) {
                 grid.innerHTML = '<div style="text-align: center; padding: 40px; grid-column: 1/-1;">Mahsulot topilmadi</div>';
@@ -2208,24 +2492,33 @@ class SalesDoctorApp {
         tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 40px;">Yuklanmoqda... (Mijozlar)</td></tr>';
 
         try {
-            // 1. Barcha mijozlarni yuklash
+            // 1. Barcha mijozlarni yuklash - CACHE dan
             let allClients = [];
-            for (let page = 1; page <= 20; page++) {
-                tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; padding: 40px;">Yuklanmoqda... (Sahifa ${page})</td></tr>`;
-                const clientsRes = await this.api.getClients({ page, limit: 500 });
-                const clients = clientsRes?.result?.client || [];
-                if (clients.length === 0) break;
-                allClients = allClients.concat(clients);
-                if (clients.length < 500) break;
+            try {
+                const baseUrl = this.getCacheBaseUrl();
+                const cRes = await fetch(`${baseUrl}/api/cache/clients`);
+                const cData = await cRes.json();
+                if (cData.status && cData.result?.client) {
+                    allClients = cData.result.client;
+                    console.log('⚡ Mijozlar cache dan:', allClients.length);
+                }
+            } catch (e) {
+                // Fallback
+                for (let page = 1; page <= 20; page++) {
+                    const clientsRes = await this.api.getClients({ page, limit: 500 });
+                    const clients = clientsRes?.result?.client || [];
+                    if (clients.length === 0) break;
+                    allClients = allClients.concat(clients);
+                    if (clients.length < 500) break;
+                }
             }
             console.log('👥 Jami mijozlar:', allClients.length);
 
-            // 2. Qarzdorlikni yuklash (getBalance) - openDebtModal bilan bir xil
+            // 2. Qarzdorlikni yuklash - CACHE dan (tezkor!)
             tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 40px;">Yuklanmoqda... (Qarzdorlik)</td></tr>';
-            const balanceRes = await this.api.request('getBalance', {});
-            const balances = balanceRes?.result?.balance || [];
+            const balances = await this.fetchAllBalances();
 
-            console.log('📊 getBalance javobi:', balances.length, 'ta balans');
+            console.log('📊 Balanslar:', balances.length, 'ta');
 
             // Client ID -> Qarzdorlik map (DOLLAR bo'yicha)
             // by-currency[].currency_id === 'd0_4' = dollar
@@ -2362,76 +2655,81 @@ class SalesDoctorApp {
     }
 
     // Load Agents Section
-    async loadAgentsSection() {
+    async loadAgentsSection(period) {
         const grid = document.getElementById('agentsGrid');
         if (!grid) return;
 
-        grid.innerHTML = '<div style="text-align: center; padding: 40px; grid-column: 1/-1;">Yuklanmoqda... (Agentlar)</div>';
+        // Period ni aniqlash
+        const activePeriod = period || this.currentPeriod || 'today';
+
+        // Filter tugmalarni yangilash
+        document.querySelectorAll('.agents-period-btn').forEach(btn => {
+            btn.classList.remove('active');
+            if (btn.dataset.period === activePeriod) btn.classList.add('active');
+        });
+
+        grid.innerHTML = '<div style="text-align: center; padding: 40px; grid-column: 1/-1;">Yuklanmoqda...</div>';
 
         try {
-            // 1. Agentlarni olish
-            const agentsRes = await this.api.request('getAgent', {});
-            const agents = agentsRes?.result?.agent || [];
+            const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+            const CACHE_BASE_URL = isLocal
+                ? 'http://localhost:3000'
+                : 'https://sd-analitika-production.up.railway.app';
+
+            // Barchasini parallel yuklash
+            const [agentsRes, ordersRes, balancesRes] = await Promise.all([
+                this.fetchWithTimeout(`${CACHE_BASE_URL}/api/cache/agents`, 3000),
+                this.fetchWithTimeout(`${CACHE_BASE_URL}/api/cache/orders/${activePeriod}`, 5000),
+                this.fetchWithTimeout(`${CACHE_BASE_URL}/api/cache/balances`, 5000)
+            ]);
+
+            const agentsData = await agentsRes.json();
+            const ordersData = await ordersRes.json();
+            const balancesData = await balancesRes.json();
+
+            const agents = (agentsData.status && agentsData.result?.agent) ? agentsData.result.agent : [];
+            const orders = (ordersData.status && ordersData.result?.order) ? ordersData.result.order : [];
+            const balances = (balancesData.status && balancesData.result?.balance) ? balancesData.result.balance : [];
 
             if (agents.length === 0) {
                 grid.innerHTML = '<div style="text-align: center; padding: 40px; grid-column: 1/-1;">Agent topilmadi</div>';
                 return;
             }
 
-            grid.innerHTML = '<div style="text-align: center; padding: 40px; grid-column: 1/-1;">Yuklanmoqda... (Buyurtmalar)</div>';
-
-            // 2. Buyurtmalarni olish (cached yoki API dan)
-            let orders = this.cachedOrders || [];
-            if (orders.length === 0) {
-                const { startDate, endDate } = this.getDateRange();
-                for (let page = 1; page <= 30; page++) {
-                    const r = await this.api.request('getOrder', { page, limit: 500, dateFrom: startDate, dateTo: endDate });
-                    const pageOrders = r?.result?.order || [];
-                    if (pageOrders.length === 0) break;
-                    orders = orders.concat(pageOrders);
-                }
-                this.cachedOrders = orders;
-            }
-
-            grid.innerHTML = '<div style="text-align: center; padding: 40px; grid-column: 1/-1;">Yuklanmoqda... (Qarzdorlik)</div>';
-
-            // 3. Qarzdorlikni olish
-            const balanceRes = await this.api.request('getBalance', {});
-            const balances = balanceRes?.result?.balance || [];
-
-            // Agent -> mijoz mapping (buyurtmalardan)
-            const clientToAgent = {};
-            orders.forEach(order => {
-                const clientId = order.client?.SD_id;
-                const agentId = order.agent?.SD_id;
-                if (clientId && agentId) {
-                    clientToAgent[clientId] = agentId;
-                }
-            });
-
-            // Agent statistikasini hisoblash
-            const agentStats = {};
             const usdRate = this.getUsdRate();
 
-            // Sotuvlar va mijozlarni hisoblash
+            // Agent → mijoz mapping (buyurtmalardan)
+            const clientToAgent = {};
+            const agentStats = {};
+
             orders.forEach(order => {
+                // Qaytarishlarni o'tkazib yuborish
+                if (order.status === 4 || order.status === 5) return;
+                const returnsSumma = parseFloat(order.totalReturnsSumma) || 0;
+                const totalSumma = parseFloat(order.totalSumma) || 0;
+                if (returnsSumma > 0 && returnsSumma === totalSumma) return;
+
                 const agentId = order.agent?.SD_id;
+                const clientId = order.client?.SD_id;
                 if (!agentId) return;
 
+                if (clientId) clientToAgent[clientId] = agentId;
+
                 if (!agentStats[agentId]) {
-                    agentStats[agentId] = { sales: 0, clients: new Set(), debt: 0 };
+                    agentStats[agentId] = { salesUZS: 0, salesUSD: 0, clients: new Set(), debt: 0, orders: 0 };
                 }
 
-                // Sotuvni qo'shish
-                const totalSumma = parseFloat(order.totalSumma) || 0;
-                // Dollar yoki so'mda bo'lishi mumkin
-                const summaUSD = totalSumma < 1000 ? totalSumma : totalSumma / usdRate;
-                agentStats[agentId].sales += summaUSD;
-
-                // Mijozni qo'shish
-                if (order.client?.SD_id) {
-                    agentStats[agentId].clients.add(order.client.SD_id);
+                const isDollar = this.isUsdOrder(order);
+                if (isDollar) {
+                    agentStats[agentId].salesUSD += totalSumma;
+                    agentStats[agentId].salesUZS += totalSumma * usdRate;
+                } else {
+                    agentStats[agentId].salesUZS += totalSumma;
+                    agentStats[agentId].salesUSD += totalSumma / usdRate;
                 }
+
+                agentStats[agentId].orders++;
+                if (clientId) agentStats[agentId].clients.add(clientId);
             });
 
             // Qarzdorlikni hisoblash
@@ -2444,9 +2742,9 @@ class SalesDoctorApp {
                 byCurrency.forEach(c => {
                     if (c.currency_id === 'd0_4') { // Dollar
                         const amount = parseFloat(c.amount) || 0;
-                        if (amount < 0) { // Qarz
+                        if (amount < 0) {
                             if (!agentStats[agentId]) {
-                                agentStats[agentId] = { sales: 0, clients: new Set(), debt: 0 };
+                                agentStats[agentId] = { salesUZS: 0, salesUSD: 0, clients: new Set(), debt: 0, orders: 0 };
                             }
                             agentStats[agentId].debt += Math.abs(amount);
                         }
@@ -2454,15 +2752,22 @@ class SalesDoctorApp {
                 });
             });
 
-            console.log('📊 Agent statistikasi:', agentStats);
+            const periodNames = { 'today': 'Bugun', 'yesterday': 'Kecha', 'week': 'Hafta', 'month': 'Oy', 'year': 'Yil' };
 
-            // Agentlarni render qilish
-            grid.innerHTML = agents.map(agent => {
+            // Agentlarni sotuvlar bo'yicha tartiblash
+            const sortedAgents = [...agents].sort((a, b) => {
+                const salesA = agentStats[a.SD_id]?.salesUZS || 0;
+                const salesB = agentStats[b.SD_id]?.salesUZS || 0;
+                return salesB - salesA;
+            });
+
+            grid.innerHTML = sortedAgents.map(agent => {
                 const agentId = agent.SD_id;
                 const initials = (agent.name || 'NA').split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
                 const isActive = agent.active === 'Y';
-                const stats = agentStats[agentId] || { sales: 0, clients: new Set(), debt: 0 };
-                const salesK = stats.sales > 1000 ? `$${(stats.sales / 1000).toFixed(0)}k` : `$${stats.sales.toFixed(0)}`;
+                const stats = agentStats[agentId] || { salesUZS: 0, salesUSD: 0, clients: new Set(), debt: 0, orders: 0 };
+                const salesUSD = Math.round(stats.salesUSD);
+                const salesFormatted = salesUSD >= 1000 ? `$${(salesUSD / 1000).toFixed(1)}k` : `$${salesUSD.toLocaleString()}`;
                 const clientCount = stats.clients.size || 0;
                 const debtK = stats.debt > 1000 ? `$${(stats.debt / 1000).toFixed(0)}k` : stats.debt > 0 ? `$${stats.debt.toFixed(0)}` : '-';
 
@@ -2473,7 +2778,7 @@ class SalesDoctorApp {
                         <div class="agent-card-role">${isActive ? '✅ Faol' : '❌ Nofaol'}</div>
                         <div class="agent-card-stats">
                             <div class="agent-stat">
-                                <div class="agent-stat-value" style="color: #10b981;">${salesK}</div>
+                                <div class="agent-stat-value" style="color: #10b981;">${salesFormatted}</div>
                                 <div class="agent-stat-label">Sotuvlar</div>
                             </div>
                             <div class="agent-stat">
@@ -2501,45 +2806,46 @@ class SalesDoctorApp {
         const countSpan = document.getElementById('lowstockCount');
         if (!tbody) return;
 
-        tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; padding: 40px;">Yuklanmoqda... (Prixodlar)</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; padding: 40px;">Yuklanmoqda...</td></tr>';
 
         try {
-            // 1. Prixod bo'lgan mahsulotlarni olish (getPurchase)
+            const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+            const CACHE_BASE_URL = isLocal
+                ? 'http://localhost:3000'
+                : 'https://sd-analitika-production.up.railway.app';
+
+            // Barchasini parallel yuklash
+            const [purchasesRes, stockRes, productsRes] = await Promise.all([
+                this.fetchWithTimeout(`${CACHE_BASE_URL}/api/cache/purchases`, 5000),
+                this.fetchWithTimeout(`${CACHE_BASE_URL}/api/cache/stock`, 5000),
+                this.fetchWithTimeout(`${CACHE_BASE_URL}/api/cache/products`, 5000)
+            ]);
+
+            const purchasesData = await purchasesRes.json();
+            const stockData = await stockRes.json();
+            const productsData = await productsRes.json();
+
+            // 1. Prixod bo'lgan mahsulotlar
+            const purchases = (purchasesData.status && purchasesData.result?.warehouse) ? purchasesData.result.warehouse : [];
             let purchasedProductIds = new Set();
             let purchasedProductNames = {};
 
-            for (let page = 1; page <= 20; page++) {
-                tbody.innerHTML = `<tr><td colspan="4" style="text-align: center; padding: 40px;">Yuklanmoqda... (Prixod sahifa ${page})</td></tr>`;
-                const r = await this.api.request('getPurchase', { page, limit: 500 });
-                const purchases = r?.result?.warehouse || [];
-                if (purchases.length === 0) break;
-
-                purchases.forEach(p => {
-                    (p.detail || []).forEach(item => {
-                        if (item.SD_id) {
-                            purchasedProductIds.add(item.SD_id);
-                            if (item.name) {
-                                purchasedProductNames[item.SD_id] = item.name;
-                            }
+            purchases.forEach(p => {
+                (p.detail || []).forEach(item => {
+                    if (item.SD_id) {
+                        purchasedProductIds.add(item.SD_id);
+                        if (item.name) {
+                            purchasedProductNames[item.SD_id] = item.name;
                         }
-                    });
+                    }
                 });
+            });
+            console.log('📥 Prixod bo\'lgan mahsulotlar (cache):', purchasedProductIds.size);
 
-                if (purchases.length < 500) break;
-            }
-            console.log('📥 Prixod bo\'lgan mahsulotlar:', purchasedProductIds.size);
-
-            // 2. getStock dan HAQIQIY ostatka olish (xuddi openProductsDetailModal dagi kabi)
-            tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; padding: 40px;">Yuklanmoqda... (Stock)</td></tr>';
-            const stockRes = await this.api.request('getStock', { limit: 500 });
-            const warehouses = stockRes?.result?.warehouse || [];
-
-            console.log('📊 Omborlar soni:', warehouses.length);
-
-            // SD_id → ostatka map
+            // 2. Stock mapping
+            const warehouses = (stockData.status && stockData.result?.warehouse) ? stockData.result.warehouse : [];
             const stockMap = {};
             warehouses.forEach(warehouse => {
-                console.log(`   Ombor: ${warehouse.name || warehouse.SD_id}, mahsulotlar: ${(warehouse.products || []).length}`);
                 (warehouse.products || []).forEach(item => {
                     const productId = item.SD_id;
                     const quantity = parseFloat(item.quantity) || 0;
@@ -2547,13 +2853,8 @@ class SalesDoctorApp {
                 });
             });
 
-            console.log('📊 Stock map jami:', Object.keys(stockMap).length, 'ta mahsulot');
-            console.log('📊 Stock namunalari:', Object.entries(stockMap).slice(0, 5));
-
-            // 3. Mahsulot nomlarini olish (agar purchase dan kelmasa)
-            tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; padding: 40px;">Yuklanmoqda... (Nomlar)</td></tr>';
-            const productsRes = await this.api.request('getProduct', { limit: 500 });
-            const products = productsRes?.result?.product || [];
+            // 3. Mahsulot nomlari
+            const products = (productsData.status && productsData.result?.product) ? productsData.result.product : [];
             products.forEach(p => {
                 if (p.SD_id && p.name) {
                     purchasedProductNames[p.SD_id] = p.name;
@@ -2567,10 +2868,10 @@ class SalesDoctorApp {
                     name: purchasedProductNames[id] || `Mahsulot #${id}`,
                     stock: stockMap[id] || 0
                 }))
-                .filter(p => p.stock < 100) // 100 dan kam qolganlar
-                .sort((a, b) => a.stock - b.stock); // Eng kam qolganlar birinchi
+                .filter(p => p.stock < 100)
+                .sort((a, b) => a.stock - b.stock);
 
-            console.log('⚠️ Prixod bo\'lgan, 100 dan kam qolgan:', outOfStockProducts.length);
+            console.log('⚠️ Prixod bo\'lgan, 100 dan kam qolgan (cache):', outOfStockProducts.length);
 
             // Cache qilish
             this.cachedOutOfStock = outOfStockProducts;
@@ -2582,7 +2883,7 @@ class SalesDoctorApp {
 
             // Count ko'rsatish
             if (countSpan) {
-                countSpan.textContent = `${outOfStockProducts.length} ta mahsulot`;
+                countSpan.textContent = `Prixod bo'lgan, ${outOfStockProducts.length} qolgan`;
             }
 
             this.renderLowstockTable(outOfStockProducts);
@@ -2712,44 +3013,107 @@ class SalesDoctorApp {
     }
 
     // ============ MAHSULOTLAR MODALI ============
+    // Buyurtma dollar yoki so'mda ekanligini aniqlash
+    isUsdOrder(order) {
+        const paymentTypeId = order.paymentType?.SD_id;
+        const priceTypeId = order.priceType?.SD_id;
+        const dollarPriceTypes = new Set(['d0_4', 'd0_7', 'd0_8', 'd0_11', 'd0_9', 'd0_6']);
+        // Agar paymentType dollar bo'lsa YOKI priceType dollar bo'lsa
+        if (dollarPriceTypes.has(paymentTypeId) || dollarPriceTypes.has(priceTypeId)) return true;
+        // Yoki totalSumma < 10000 bo'lsa (kichik raqam = dollar)
+        const totalSumma = parseFloat(order.totalSumma) || 0;
+        if (totalSumma > 0 && totalSumma < 10000) return true;
+        return false;
+    }
+
     async openProductsModal() {
         const modal = document.getElementById('detailModal');
         const title = document.getElementById('modalTitle');
         const body = document.getElementById('modalBody');
         if (!modal || !title || !body) return;
 
-        title.textContent = 'Barcha Mahsulotlar';
+        const periodNames = { today: 'Bugun', yesterday: 'Kecha', week: 'Hafta', month: 'Oy', year: 'Yil', custom: 'Tanlangan' };
+        title.textContent = `Barcha Mahsulotlar (${periodNames[this.currentPeriod] || 'Bugun'})`;
         body.innerHTML = '<p>Yuklanmoqda...</p>';
         modal.classList.add('active');
 
-        const orders = this.cachedOrders || [];
-        const costPrices = await this.fetchCostPrices();
-        const productStats = {};
+        try {
+            // Server cache dan period bo'yicha buyurtmalarni olish
+            const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+            const CACHE_BASE_URL = isLocal
+                ? 'http://localhost:3000'
+                : 'https://sd-analitika-production.up.railway.app';
 
-        orders.forEach(order => {
-            const items = order.orderProducts || [];
-            items.forEach(item => {
-                const productId = item.product?.SD_id || item.product?.name || 'unknown';
-                const productName = item.product?.name || 'Noma\'lum';
-                const quantity = parseFloat(item.quantity) || 0;
-                const summa = parseFloat(item.summa) || 0;
+            const ordersRes = await this.fetchWithTimeout(`${CACHE_BASE_URL}/api/cache/orders/${this.currentPeriod}`, 5000);
+            const ordersData = await ordersRes.json();
 
-                const costData = costPrices[productId];
-                const profit = this.calculateProfit(summa, costData?.costPriceUZS || 0, quantity);
+            const orders = (ordersData.status && ordersData.result?.order) ? ordersData.result.order : (this.cachedOrders || []);
+            const costPrices = await this.fetchCostPrices();
+            const USD_RATE = this.getUsdRate();
+            const productStats = {};
 
-                if (!productStats[productId]) {
-                    productStats[productId] = { name: productName, sold: 0, revenue: 0, profit: 0 };
-                }
-                productStats[productId].sold += quantity;
-                productStats[productId].revenue += summa;
-                productStats[productId].profit += profit;
+            orders.forEach(order => {
+                // Qaytarishlarni o'tkazib yuborish
+                if (order.status === 4 || order.status === 5) return;
+                const returnsSumma = parseFloat(order.totalReturnsSumma) || 0;
+                const totalSumma = parseFloat(order.totalSumma) || 0;
+                if (returnsSumma > 0 && returnsSumma === totalSumma) return;
+
+                const isDollar = this.isUsdOrder(order);
+                const items = order.orderProducts || [];
+
+                items.forEach(item => {
+                    const productId = item.product?.SD_id || item.product?.name || 'unknown';
+                    const productName = item.product?.name || 'Noma\'lum';
+                    const quantity = parseFloat(item.quantity) || 0;
+                    const rawSumma = parseFloat(item.summa) || 0;
+
+                    // Dollar buyurtma bo'lsa, summa ni so'mga aylantirish
+                    const summaUZS = isDollar ? rawSumma * USD_RATE : rawSumma;
+
+                    // Foyda hisoblash - so'mdagi summa bilan
+                    const costData = costPrices[productId];
+                    const costPriceUZS = costData?.costPriceUZS || 0;
+                    let profit = 0;
+                    if (costPriceUZS > 0) {
+                        profit = summaUZS - (costPriceUZS * quantity);
+                        if (profit < 0) profit = 0;
+                        if (profit > summaUZS * 0.50) profit = summaUZS * 0.15;
+                    } else {
+                        profit = summaUZS * 0.15; // Tan narx yo'q - 15% taxminiy
+                    }
+
+                    if (!productStats[productId]) {
+                        productStats[productId] = { name: productName, sold: 0, revenue: 0, profit: 0 };
+                    }
+                    productStats[productId].sold += quantity;
+                    productStats[productId].revenue += summaUZS;
+                    productStats[productId].profit += profit;
+                });
             });
-        });
 
-        const allProducts = Object.values(productStats)
-            .sort((a, b) => b.sold - a.sold);
+            const allProducts = Object.values(productStats)
+                .sort((a, b) => b.sold - a.sold);
 
-        const html = `
+            // Jami summa va foyda
+            const totalRevenue = allProducts.reduce((s, p) => s + p.revenue, 0);
+            const totalProfit = allProducts.reduce((s, p) => s + p.profit, 0);
+
+            const html = `
+            <div style="display: flex; gap: 16px; margin-bottom: 16px;">
+                <div style="flex: 1; background: rgba(16,185,129,0.1); border-radius: 12px; padding: 12px; text-align: center;">
+                    <div style="color: var(--text-secondary); font-size: 12px;">Jami summa</div>
+                    <div style="font-size: 20px; font-weight: bold; color: #10b981;">${this.formatCurrency(totalRevenue)}</div>
+                </div>
+                <div style="flex: 1; background: rgba(139,92,246,0.1); border-radius: 12px; padding: 12px; text-align: center;">
+                    <div style="color: var(--text-secondary); font-size: 12px;">Jami foyda</div>
+                    <div style="font-size: 20px; font-weight: bold; color: #8b5cf6;">${this.formatCurrency(totalProfit)}</div>
+                </div>
+                <div style="flex: 1; background: rgba(59,130,246,0.1); border-radius: 12px; padding: 12px; text-align: center;">
+                    <div style="color: var(--text-secondary); font-size: 12px;">Jami mahsulotlar</div>
+                    <div style="font-size: 20px; font-weight: bold; color: #3b82f6;">${allProducts.length}</div>
+                </div>
+            </div>
             <div class="modal-table-wrapper">
                 <table class="modal-table">
                     <thead>
@@ -2776,12 +3140,15 @@ class SalesDoctorApp {
             </div>
         `;
 
-        body.innerHTML = html;
-        modal.classList.add('active');
-        document.body.style.overflow = 'hidden';
+            body.innerHTML = html;
+            modal.classList.add('active');
+            document.body.style.overflow = 'hidden';
+        } catch (error) {
+            console.error('Mahsulotlar modal xatosi:', error);
+            body.innerHTML = '<p style="color: #ef4444;">Ma\'lumotlarni yuklashda xato yuz berdi</p>';
+        }
     }
 
-    // ============ MAHSULOTLAR BATAFSIL MODALI ============
     async openProductsDetailModal() {
         const modal = document.getElementById('detailModal');
         const title = document.getElementById('modalTitle');
@@ -2789,144 +3156,118 @@ class SalesDoctorApp {
         if (!modal || !title || !body) return;
 
         title.textContent = 'Mahsulotlar - Tan narx va Ostatka';
-        body.innerHTML = '<p>Yuklanmoqda... (Stock va tan narx olinmoqda)</p>';
+        body.innerHTML = '<p>Yuklanmoqda...</p>';
         modal.classList.add('active');
 
         try {
-            body.innerHTML = '<p>Yuklanmoqda... (1/3 Mahsulot nomlari)</p>';
+            // Server cache dan ma'lumot olish
+            const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+            const CACHE_BASE_URL = isLocal
+                ? 'http://localhost:3000'
+                : 'https://sd-analitika-production.up.railway.app';
 
-            // 1. getProduct dan mahsulot NOMLARI va ID lari
-            let allProducts = [];
-            for (let page = 1; page <= 20; page++) {
-                const r = await this.api.request('getProduct', { page, limit: 500 });
-                const products = r?.result?.product || [];
-                if (products.length === 0) break;
-                allProducts = allProducts.concat(products);
+            // Cache holati va statistika olish
+            const statusRes = await fetch(`${CACHE_BASE_URL}/api/cache/status`);
+            const statusData = await statusRes.json();
+
+            if (!statusData.hasData) {
+                body.innerHTML = '<p style="color: #f59e0b;">Server cache hali tayyor emas. Biroz kuting...</p>';
+                return;
             }
 
-            body.innerHTML = '<p>Yuklanmoqda... (2/3 Ostatka - getStock)</p>';
+            // Tayyor statistika - cache dan
+            const productsCount = statusData.counts.products || 0;
 
-            // 2. getStock dan HAQIQIY ostatka olish
-            const stockRes = await this.api.request('getStock', { limit: 500 });
-            const warehouses = stockRes?.result?.warehouse || [];
+            // Stock, Products va Purchases dan statistika hisoblash uchun cache dan olamiz
+            const [productsRes, purchasesRes, stockRes] = await Promise.all([
+                fetch(`${CACHE_BASE_URL}/api/cache/products`),
+                fetch(`${CACHE_BASE_URL}/api/cache/purchases`),
+                fetch(`${CACHE_BASE_URL}/api/cache/stock`)
+            ]);
 
-            // SD_id → ostatka map
+            const productsData = await productsRes.json();
+            const purchasesData = await purchasesRes.json();
+            const stockData = await stockRes.json();
+
+            const products = productsData.result?.product || [];
+            const purchases = purchasesData.result?.warehouse || [];
+            const warehouses = stockData.result?.warehouse || [];
+
+            // Stock map yaratish (sklad bo'yicha)
             const stockMap = {};
             warehouses.forEach(warehouse => {
                 (warehouse.products || []).forEach(item => {
                     const productId = item.SD_id;
                     const quantity = parseFloat(item.quantity) || 0;
-                    // Agar yangi sklad yoki ko'proq miqdor bo'lsa, qo'shamiz
                     stockMap[productId] = (stockMap[productId] || 0) + quantity;
                 });
             });
 
-            body.innerHTML = '<p>Yuklanmoqda... (3/3 Tan narx - getPurchase)</p>';
-
-            // 3. getPurchase dan tan narx olish
-            let allPurchases = [];
-            for (let page = 1; page <= 10; page++) {
-                const r = await this.api.request('getPurchase', { page, limit: 500 });
-                const purchases = r?.result?.warehouse || [];
-                if (purchases.length === 0) break;
-                allPurchases = allPurchases.concat(purchases);
-            }
-
-            // SD_id → tan narx (eng oxirgi kirim narxi)
+            // Tan narxlarni map qilish
+            const usdRate = this.getUsdRate();
             const priceMap = {};
-            allPurchases.forEach(p => {
+            purchases.forEach(p => {
                 (p.detail || []).forEach(item => {
                     const productId = item.SD_id;
                     const price = parseFloat(item.price) || 0;
-                    // Eng oxirgi kirim narxini olish (0 dan katta bo'lsa)
                     if (price > 0) {
                         priceMap[productId] = price;
                     }
                 });
             });
 
-            const usdRate = this.getUsdRate();
+            // Statistikani hisoblash
+            let totalOstatka = 0;
+            let totalStockValueUSD = 0;
+            let productsWithStock = 0;
 
-            // Barcha ma'lumotlarni birlashtirish
-            const productMap = {};
-
-            allProducts.forEach(product => {
+            products.forEach(product => {
                 const productId = product.SD_id;
-                const productName = product.name || 'Noma\'lum';
+                // stockMap dan ostatka olish (getStock dan to'g'ri ma'lumot)
                 const ostatka = stockMap[productId] || 0;
                 const rawPrice = priceMap[productId] || 0;
 
-                // API dan kelgan narx USD yoki UZS bo'lishi mumkin
-                // Agar narx < 100 bo'lsa, u allaqachon USD da
-                // Agar narx >= 100 bo'lsa, u UZS da va konvertatsiya kerak
                 let costPriceUSD = 0;
                 if (rawPrice > 0) {
-                    if (rawPrice < 100) {
-                        costPriceUSD = rawPrice; // Allaqachon USD
-                    } else {
-                        costPriceUSD = rawPrice / usdRate; // UZS dan USD ga
-                    }
+                    costPriceUSD = rawPrice < 100 ? rawPrice : rawPrice / usdRate;
                 }
 
                 const stockValueUSD = costPriceUSD * ostatka;
 
-                productMap[productId] = {
-                    name: productName,
-                    costPriceUSD,
-                    ostatka,
-                    stockValueUSD
-                };
+                if (ostatka > 0) {
+                    productsWithStock++;
+                    totalOstatka += ostatka;
+                    totalStockValueUSD += stockValueUSD;
+                }
             });
 
-            // Ro'yxatni tayyorlash
-            const productsList = Object.entries(productMap)
-                .map(([id, data]) => ({ id, ...data }))
-                .filter(p => p.ostatka > 0)
-                .sort((a, b) => b.stockValueUSD - a.stockValueUSD);
-
-            const totalOstatka = productsList.reduce((s, p) => s + p.ostatka, 0);
-            const totalStockValueUSD = productsList.reduce((s, p) => s + p.stockValueUSD, 0);
-
+            // Faqat YIGINDI ko'rsatish (ro'yxatsiz - tez!)
             const html = `
-                <div class="modal-stats-summary" style="display: flex; gap: 15px; margin-bottom: 20px; flex-wrap: wrap;">
-                    <div class="stat-box" style="flex: 1; min-width: 140px; background: rgba(99,102,241,0.1); padding: 15px; border-radius: 10px; text-align: center;">
-                        <div style="font-size: 24px; font-weight: bold; color: var(--primary);">${productsList.length}</div>
-                        <div style="color: var(--text-secondary); font-size: 12px;">Mahsulotlar</div>
+                <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:10px;">
+                    <div style="background:linear-gradient(135deg,rgba(99,102,241,0.15),rgba(99,102,241,0.05));border:1px solid rgba(99,102,241,0.25);border-radius:10px;padding:10px;text-align:center;">
+                        <div style="color:#a5b4fc;font-size:10px;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">📦 Mahsulotlar</div>
+                        <div style="color:#818cf8;font-size:16px;font-weight:800;">${productsWithStock.toLocaleString()}</div>
+                        <div style="color:#6b7280;font-size:10px;margin-top:2px;">ta aktiv</div>
                     </div>
-                    <div class="stat-box" style="flex: 1; min-width: 140px; background: rgba(16,185,129,0.1); padding: 15px; border-radius: 10px; text-align: center;">
-                        <div style="font-size: 24px; font-weight: bold; color: #10b981;">${totalOstatka.toLocaleString()}</div>
-                        <div style="color: var(--text-secondary); font-size: 12px;">Jami Ostatka</div>
+                    <div style="background:linear-gradient(135deg,rgba(16,185,129,0.15),rgba(16,185,129,0.05));border:1px solid rgba(16,185,129,0.25);border-radius:10px;padding:10px;text-align:center;">
+                        <div style="color:#6ee7b7;font-size:10px;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">📊 Jami Ostatka</div>
+                        <div style="color:#10b981;font-size:16px;font-weight:800;">${totalOstatka.toLocaleString()}</div>
+                        <div style="color:#6b7280;font-size:10px;margin-top:2px;">dona</div>
                     </div>
-                    <div class="stat-box" style="flex: 1; min-width: 140px; background: rgba(245,158,11,0.1); padding: 15px; border-radius: 10px; text-align: center;">
-                        <div style="font-size: 24px; font-weight: bold; color: #f59e0b;">$${totalStockValueUSD.toLocaleString(undefined, { maximumFractionDigits: 0 })}</div>
-                        <div style="color: var(--text-secondary); font-size: 12px;">Ostatka Qiymati (USD)</div>
+                    <div style="background:linear-gradient(135deg,rgba(245,158,11,0.15),rgba(245,158,11,0.05));border:1px solid rgba(245,158,11,0.25);border-radius:10px;padding:10px;text-align:center;">
+                        <div style="color:#fcd34d;font-size:10px;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">💰 Ostatka Qiymati</div>
+                        <div style="color:#f59e0b;font-size:16px;font-weight:800;">$${totalStockValueUSD.toLocaleString(undefined, { maximumFractionDigits: 0 })}</div>
+                        <div style="color:#6b7280;font-size:10px;margin-top:2px;">dollar</div>
+                    </div>
+                    <div style="background:linear-gradient(135deg,rgba(59,130,246,0.15),rgba(59,130,246,0.05));border:1px solid rgba(59,130,246,0.25);border-radius:10px;padding:10px;text-align:center;">
+                        <div style="color:#93c5fd;font-size:10px;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">📈 O'rtacha narx</div>
+                        <div style="color:#60a5fa;font-size:16px;font-weight:800;">$${productsWithStock > 0 ? Math.round(totalStockValueUSD / productsWithStock).toLocaleString() : 0}</div>
+                        <div style="color:#6b7280;font-size:10px;margin-top:2px;">har mahsulot</div>
                     </div>
                 </div>
-                <div class="modal-table-wrapper" style="max-height: 500px; overflow-y: auto;">
-                    <table class="modal-table">
-                        <thead style="position: sticky; top: 0; background: var(--bg-secondary);">
-                            <tr>
-                                <th>#</th>
-                                <th>Mahsulot</th>
-                                <th>Tan narx ($)</th>
-                                <th style="color: #10b981;">Ostatka</th>
-                                <th>Qiymat ($)</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            ${productsList.slice(0, 200).map((p, i) => `
-                                <tr>
-                                    <td>${i + 1}</td>
-                                    <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${p.name}</td>
-                                    <td>${p.costPriceUSD > 0 ? '$' + p.costPriceUSD.toFixed(2) : '-'}</td>
-                                    <td style="font-weight: bold; color: #10b981;">${p.ostatka.toLocaleString()}</td>
-                                    <td style="font-weight: bold; color: #f59e0b;">$${p.stockValueUSD.toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
-                                </tr>
-                            `).join('')}
-                        </tbody>
-                    </table>
+                <div style="text-align:center;padding:8px 0;color:#6b7280;font-size:11px;">
+                    📅 Cache: ${new Date(statusData.lastUpdate).toLocaleString('uz-UZ')} &nbsp;|&nbsp; 💡 Batafsil: Sales Doctor paneli
                 </div>
-                ${productsList.length > 200 ? `<p style="text-align: center; color: var(--text-secondary); margin-top: 10px;">... va yana ${productsList.length - 200} ta mahsulot</p>` : ''}
             `;
 
             body.innerHTML = html;
@@ -3051,6 +3392,106 @@ class SalesDoctorApp {
         document.body.style.overflow = 'hidden';
     }
 
+    // ============ BUYURTMALAR MODALI ============
+    async openOrdersModal() {
+        const modal = document.getElementById('detailModal');
+        const title = document.getElementById('modalTitle');
+        const body = document.getElementById('modalBody');
+        if (!modal || !title || !body) return;
+
+        const { startDate, endDate } = this.getDateRange();
+        const periodNames = { 'today': 'Bugun', 'week': 'Hafta', 'month': 'Oy', 'quarter': 'Kvartal', 'year': 'Yil' };
+
+        title.textContent = `Buyurtmalar (${periodNames[this.currentPeriod] || 'Bugun'})`;
+        body.innerHTML = '<p style="text-align: center; padding: 40px;">Yuklanmoqda...</p>';
+        modal.classList.add('active');
+        document.body.style.overflow = 'hidden';
+
+        // Faqat filtrlangan buyurtmalarni olish
+        const allOrders = this.cachedOrders || [];
+        const orders = allOrders.filter(order => {
+            const orderDate = (order.dateCreate || order.dateDocument || '').split('T')[0].split(' ')[0];
+            return orderDate >= startDate && orderDate <= endDate;
+        }).filter(order => {
+            // Qaytarishlarni o'tkazib yuborish
+            if (order.status === 4 || order.status === 5) return false;
+            const returnsSumma = parseFloat(order.totalReturnsSumma) || 0;
+            const totalSumma = parseFloat(order.totalSumma) || 0;
+            if (returnsSumma > 0 && returnsSumma === totalSumma) return false;
+            return true;
+        });
+
+        // Buyurtmalarni summa bo'yicha tartiblash
+        const sortedOrders = orders.sort((a, b) => {
+            const sumA = parseFloat(a.totalSumma) || 0;
+            const sumB = parseFloat(b.totalSumma) || 0;
+            return sumB - sumA;
+        });
+
+        const totalSales = sortedOrders.reduce((s, o) => s + (parseFloat(o.totalSumma) || 0), 0);
+        const uniqueClients = new Set(sortedOrders.map(o => o.client?.SD_id)).size;
+
+        const avgOrder = sortedOrders.length > 0 ? Math.round(totalSales / sortedOrders.length) : 0;
+
+        const html = `
+            <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:10px;">
+                <div style="background:linear-gradient(135deg,rgba(59,130,246,0.15),rgba(59,130,246,0.05));border:1px solid rgba(59,130,246,0.25);border-radius:10px;padding:10px;text-align:center;">
+                    <div style="color:#93c5fd;font-size:10px;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">📦 Buyurtmalar</div>
+                    <div style="color:#60a5fa;font-size:16px;font-weight:800;">${sortedOrders.length}</div>
+                    <div style="color:#6b7280;font-size:10px;margin-top:2px;">ta buyurtma</div>
+                </div>
+                <div style="background:linear-gradient(135deg,rgba(16,185,129,0.15),rgba(16,185,129,0.05));border:1px solid rgba(16,185,129,0.25);border-radius:10px;padding:10px;text-align:center;">
+                    <div style="color:#6ee7b7;font-size:10px;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">👥 Mijozlar</div>
+                    <div style="color:#10b981;font-size:16px;font-weight:800;">${uniqueClients}</div>
+                    <div style="color:#6b7280;font-size:10px;margin-top:2px;">ta xaridor</div>
+                </div>
+                <div style="background:linear-gradient(135deg,rgba(52,199,89,0.15),rgba(52,199,89,0.05));border:1px solid rgba(52,199,89,0.25);border-radius:10px;padding:10px;text-align:center;">
+                    <div style="color:#6ee7b7;font-size:10px;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">💰 Jami sotuv</div>
+                    <div style="color:#34c759;font-size:16px;font-weight:800;">${this.formatCurrency(totalSales)}</div>
+                    <div style="color:#6b7280;font-size:10px;margin-top:2px;">so'm</div>
+                </div>
+                <div style="background:linear-gradient(135deg,rgba(245,158,11,0.15),rgba(245,158,11,0.05));border:1px solid rgba(245,158,11,0.25);border-radius:10px;padding:10px;text-align:center;">
+                    <div style="color:#fcd34d;font-size:10px;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">📊 O'rtacha</div>
+                    <div style="color:#f59e0b;font-size:16px;font-weight:800;">${this.formatCurrency(avgOrder)}</div>
+                    <div style="color:#6b7280;font-size:10px;margin-top:2px;">har buyurtma</div>
+                </div>
+            </div>
+            <div class="data-table-wrapper" style="max-height: 55vh; overflow-y: auto;">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>Sana</th>
+                            <th>Mijoz</th>
+                            <th>Agent</th>
+                            <th>Summa</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${sortedOrders.slice(0, 200).map((o, i) => {
+            const date = (o.dateCreate || o.dateDocument || '').split('T')[0].split(' ')[0];
+            const clientName = o.client?.clientName || o.client?.name || 'Noma\'lum';
+            const agentName = o.agent?.name || 'Noma\'lum';
+            const summa = parseFloat(o.totalSumma) || 0;
+            return `
+                            <tr>
+                                <td>${i + 1}</td>
+                                <td style="color:#93c5fd;font-size:13px;">${date}</td>
+                                <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${clientName}</td>
+                                <td style="color:#d8b4fe;">${agentName}</td>
+                                <td style="font-weight:600;color:#10b981;">${this.formatCurrency(summa)}</td>
+                            </tr>
+                        `;
+        }).join('')}
+                    </tbody>
+                </table>
+            </div>
+            ${sortedOrders.length > 200 ? `<p style="text-align:center;color:var(--text-secondary);margin-top:8px;font-size:12px;">... va yana ${sortedOrders.length - 200} ta buyurtma</p>` : ''}
+        `;
+
+        body.innerHTML = html;
+    }
+
     // ============ AKTIV MIJOZLAR MODALI (AKB) - TEZROQ ============
     async openActiveClientsModal() {
         const modal = document.getElementById('detailModal');
@@ -3094,23 +3535,29 @@ class SalesDoctorApp {
         const totalSales = akbClients.reduce((s, c) => s + c.sales, 0);
         const totalOrders = akbClients.reduce((s, c) => s + c.orders, 0);
 
+        const avgSales = akbClients.length > 0 ? Math.round(totalSales / akbClients.length) : 0;
+
         const html = `
-            <div class="modal-stats-summary" style="display: flex; gap: 15px; margin-bottom: 20px; flex-wrap: wrap;">
-                <div style="flex: 1; min-width: 120px; background: linear-gradient(135deg, #059669, #10b981); padding: 15px; border-radius: 12px; text-align: center; color: white;">
-                    <div style="font-size: 28px; font-weight: bold;">${akbClients.length}</div>
-                    <div style="font-size: 12px; opacity: 0.9;">AKB (Aktiv)</div>
+            <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:10px;">
+                <div style="background:linear-gradient(135deg,rgba(16,185,129,0.15),rgba(16,185,129,0.05));border:1px solid rgba(16,185,129,0.25);border-radius:10px;padding:10px;text-align:center;">
+                    <div style="color:#6ee7b7;font-size:10px;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">👥 Aktiv Mijozlar</div>
+                    <div style="color:#10b981;font-size:16px;font-weight:800;">${akbClients.length}</div>
+                    <div style="color:#6b7280;font-size:10px;margin-top:2px;">ta xaridor</div>
                 </div>
-                <div style="flex: 1; min-width: 120px; background: rgba(99,102,241,0.15); padding: 15px; border-radius: 12px; text-align: center;">
-                    <div style="font-size: 28px; font-weight: bold; color: var(--primary);">${this.cachedOKBCount || 0}</div>
-                    <div style="font-size: 12px; color: var(--text-secondary);">OKB (Jami)</div>
+                <div style="background:linear-gradient(135deg,rgba(52,199,89,0.15),rgba(52,199,89,0.05));border:1px solid rgba(52,199,89,0.25);border-radius:10px;padding:10px;text-align:center;">
+                    <div style="color:#6ee7b7;font-size:10px;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">💰 Jami sotuv</div>
+                    <div style="color:#34c759;font-size:16px;font-weight:800;">${this.formatCurrency(totalSales)}</div>
+                    <div style="color:#6b7280;font-size:10px;margin-top:2px;">so'm</div>
                 </div>
-                <div style="flex: 1; min-width: 120px; background: rgba(16,185,129,0.15); padding: 15px; border-radius: 12px; text-align: center;">
-                    <div style="font-size: 28px; font-weight: bold; color: #10b981;">${totalOrders}</div>
-                    <div style="font-size: 12px; color: var(--text-secondary);">Buyurtmalar</div>
+                <div style="background:linear-gradient(135deg,rgba(168,85,247,0.15),rgba(168,85,247,0.05));border:1px solid rgba(168,85,247,0.25);border-radius:10px;padding:10px;text-align:center;">
+                    <div style="color:#d8b4fe;font-size:10px;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">📦 Buyurtmalar</div>
+                    <div style="color:#a855f7;font-size:16px;font-weight:800;">${totalOrders}</div>
+                    <div style="color:#6b7280;font-size:10px;margin-top:2px;">ta buyurtma</div>
                 </div>
-                <div style="flex: 1; min-width: 120px; background: rgba(245,158,11,0.15); padding: 15px; border-radius: 12px; text-align: center;">
-                    <div style="font-size: 20px; font-weight: bold; color: #f59e0b;">${this.formatCurrency(totalSales)}</div>
-                    <div style="font-size: 12px; color: var(--text-secondary);">Jami sotuv</div>
+                <div style="background:linear-gradient(135deg,rgba(245,158,11,0.15),rgba(245,158,11,0.05));border:1px solid rgba(245,158,11,0.25);border-radius:10px;padding:10px;text-align:center;">
+                    <div style="color:#fcd34d;font-size:10px;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">📊 O'rtacha</div>
+                    <div style="color:#f59e0b;font-size:16px;font-weight:800;">${this.formatCurrency(avgSales)}</div>
+                    <div style="color:#6b7280;font-size:10px;margin-top:2px;">har mijoz</div>
                 </div>
             </div>
             <div class="data-table-wrapper" style="max-height: 55vh; overflow-y: auto;">
@@ -3121,21 +3568,32 @@ class SalesDoctorApp {
                             <th>Mijoz</th>
                             <th>Buyurtmalar</th>
                             <th>Sotuvlar</th>
+                            <th style="width:100px;">Ulush</th>
                         </tr>
                     </thead>
                     <tbody>
-                        ${akbClients.slice(0, 200).map((c, i) => `
+                        ${akbClients.slice(0, 200).map((c, i) => {
+            const percent = totalSales > 0 ? Math.round((c.sales / totalSales) * 100) : 0;
+            return `
                             <tr>
                                 <td>${i + 1}</td>
                                 <td><strong>${c.name}</strong></td>
-                                <td>${c.orders}</td>
-                                <td>${this.formatCurrency(c.sales)}</td>
+                                <td style="color:#d8b4fe;">${c.orders} ta</td>
+                                <td style="color:#34c759;font-weight:600;">${this.formatCurrency(c.sales)}</td>
+                                <td>
+                                    <div style="display:flex;align-items:center;gap:4px;">
+                                        <div style="flex:1;height:4px;background:rgba(255,255,255,0.06);border-radius:2px;overflow:hidden;">
+                                            <div style="height:100%;width:${percent}%;background:linear-gradient(90deg,#10b981,#34c759);border-radius:2px;"></div>
+                                        </div>
+                                        <span style="font-size:10px;color:#6b7280;min-width:24px;text-align:right;">${percent}%</span>
+                                    </div>
+                                </td>
                             </tr>
-                        `).join('')}
+                        `}).join('')}
                     </tbody>
                 </table>
             </div>
-            ${akbClients.length > 200 ? `<p style="text-align: center; color: var(--text-secondary); margin-top: 10px;">... va yana ${akbClients.length - 200} ta mijoz</p>` : ''}
+            ${akbClients.length > 200 ? `<p style="text-align:center;color:var(--text-secondary);margin-top:8px;font-size:12px;">... va yana ${akbClients.length - 200} ta mijoz</p>` : ''}
         `;
 
         body.innerHTML = html;
@@ -3148,95 +3606,144 @@ class SalesDoctorApp {
         const body = document.getElementById('modalBody');
         if (!modal || !title || !body) return;
 
-        // Tanlangan davr
-        const { startDate, endDate } = this.getDateRange();
-        const periodNames = { 'today': 'Bugun', 'week': 'Hafta', 'month': 'Oy', 'quarter': 'Kvartal', 'year': 'Yil' };
+        const periodNames = { 'today': 'Bugun', 'yesterday': 'Kecha', 'week': 'Hafta', 'month': 'Oy', 'quarter': 'Kvartal', 'year': 'Yil' };
 
-        title.textContent = `Barcha Agentlar(${periodNames[this.currentPeriod] || 'Bugun'})`;
+        title.textContent = `Barcha Agentlar (${periodNames[this.currentPeriod] || 'Bugun'})`;
         body.innerHTML = '<p>Yuklanmoqda...</p>';
         modal.classList.add('active');
 
-        // Tanlangan davr bo'yicha filtrlash
-        const allOrders = this.cachedOrders || [];
-        const orders = allOrders.filter(order => {
-            const orderDate = (order.dateCreate || order.dateDocument || '').split('T')[0].split(' ')[0];
-            return orderDate >= startDate && orderDate <= endDate;
-        });
+        try {
+            // Server cache dan period bo'yicha buyurtmalarni olish
+            const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+            const CACHE_BASE_URL = isLocal
+                ? 'http://localhost:3000'
+                : 'https://sd-analitika-production.up.railway.app';
 
-        const costPrices = await this.fetchCostPrices();
-        const agentNames = {
-            'd0_2': 'Abdulazizxon Aligarh', 'd0_3': 'Abdullayev Abdulhafiz', 'd0_4': 'Abduraximova Muxayyoxon',
-            'd0_6': 'Abduraxmonov Shuxrat', 'd0_7': 'Aliakbar Yusupov', 'd0_8': 'Axmedova Xalimaxon',
-            'd0_9': 'Bahodirjon', 'd0_10': 'Lobarxon', 'd0_11': 'Matkarimov Bexruz',
-            'd0_12': 'Maxmudov Abdulazizxon', 'd0_13': 'Muxtorxon aka Onlem', 'd0_14': 'Muxtorxon aka Sleppy',
-            'd0_19': 'Nilufarxon', 'd0_21': 'Nodirxon Dokon', 'd0_22': 'Ofis',
-            'd0_23': 'Oybek', 'd0_24': 'Soliev Ibrohimjon', 'd0_25': 'Tojiboyev Abubakir',
-            'd0_26': 'Ubaydullo', 'd0_27': 'Usmonqulov Asadulloh', 'd0_28': 'Admin'
-        };
+            const ordersRes = await this.fetchWithTimeout(`${CACHE_BASE_URL}/api/cache/orders/${this.currentPeriod}`, 5000);
+            const ordersData = await ordersRes.json();
+            const orders = (ordersData.status && ordersData.result?.order) ? ordersData.result.order : (this.cachedOrders || []);
 
-        const agentStats = {};
-        orders.forEach(order => {
-            const agentId = order.agent?.SD_id || 'unknown';
-            const agentName = agentNames[agentId] || `Agent ${agentId} `;
-            const clientId = order.client?.SD_id || 'unknown';
-            const summa = parseFloat(order.totalSumma) || 0;
+            // Agent nomlarni cache dan olish
+            let agentNameMap = {};
+            try {
+                const agentsRes = await this.fetchWithTimeout(`${CACHE_BASE_URL}/api/cache/agents`, 3000);
+                const agentsData = await agentsRes.json();
+                if (agentsData.status && agentsData.result?.agent) {
+                    agentsData.result.agent.forEach(a => {
+                        agentNameMap[a.SD_id] = a.name;
+                    });
+                }
+            } catch (e) { console.log('Agent nomlar yuklanmadi'); }
 
-            // Har bir mahsulot uchun foydani hisoblash
-            let orderProfit = 0;
-            (order.orderProducts || []).forEach(item => {
-                const productId = item.product?.SD_id;
-                const quantity = parseFloat(item.quantity) || 0;
-                const itemSumma = parseFloat(item.summa) || 0;
-                const costData = costPrices[productId];
-                orderProfit += this.calculateProfit(itemSumma, costData?.costPriceUZS || 0, quantity);
+            const costPrices = await this.fetchCostPrices();
+            const USD_RATE = this.getUsdRate();
+
+            const agentStats = {};
+            orders.forEach(order => {
+                // Qaytarishlarni o'tkazib yuborish
+                if (order.status === 4 || order.status === 5) return;
+                const returnsSumma = parseFloat(order.totalReturnsSumma) || 0;
+                const totalSumma = parseFloat(order.totalSumma) || 0;
+                if (returnsSumma > 0 && returnsSumma === totalSumma) return;
+
+                const agentId = order.agent?.SD_id || 'unknown';
+                const agentName = agentNameMap[agentId] || order.agent?.name || `Agent ${agentId}`;
+                const clientId = order.client?.SD_id || 'unknown';
+                const isDollar = this.isUsdOrder(order);
+                const summaUZS = isDollar ? totalSumma * USD_RATE : totalSumma;
+
+                // Foyda hisoblash
+                let orderProfit = 0;
+                (order.orderProducts || []).forEach(item => {
+                    const productId = item.product?.SD_id;
+                    const quantity = parseFloat(item.quantity) || 0;
+                    const rawSumma = parseFloat(item.summa) || 0;
+                    const itemSummaUZS = isDollar ? rawSumma * USD_RATE : rawSumma;
+                    const costData = costPrices[productId];
+                    const costPriceUZS = costData?.costPriceUZS || 0;
+                    if (costPriceUZS > 0) {
+                        let p = itemSummaUZS - (costPriceUZS * quantity);
+                        if (p < 0) p = 0;
+                        if (p > itemSummaUZS * 0.50) p = itemSummaUZS * 0.15;
+                        orderProfit += p;
+                    } else {
+                        orderProfit += itemSummaUZS * 0.15;
+                    }
+                });
+
+                if (agentId !== 'unknown') {
+                    if (!agentStats[agentId]) {
+                        agentStats[agentId] = { name: agentName, sales: 0, profit: 0, clients: new Set(), orders: 0 };
+                    }
+                    agentStats[agentId].sales += summaUZS;
+                    agentStats[agentId].profit += orderProfit;
+                    agentStats[agentId].clients.add(clientId);
+                    agentStats[agentId].orders += 1;
+                }
             });
 
-            if (agentId !== 'unknown') {
-                if (!agentStats[agentId]) {
-                    agentStats[agentId] = { name: agentName, sales: 0, profit: 0, clients: new Set(), orders: 0 };
-                }
-                agentStats[agentId].sales += summa;
-                agentStats[agentId].profit += orderProfit;
-                agentStats[agentId].clients.add(clientId);
-                agentStats[agentId].orders += 1;
-            }
-        });
+            const allAgents = Object.entries(agentStats)
+                .sort(([, a], [, b]) => b.sales - a.sales)
+                .map(([id, a]) => ({ id, ...a, clients: a.clients.size }));
 
-        const allAgents = Object.entries(agentStats)
-            .sort(([, a], [, b]) => b.sales - a.sales)
-            .map(([id, a]) => ({ id, ...a, clients: a.clients.size }));
+            // Jami ko'rsatkichlar
+            const totalSales = allAgents.reduce((s, a) => s + a.sales, 0);
+            const totalProfit = allAgents.reduce((s, a) => s + a.profit, 0);
+            const totalOrders = allAgents.reduce((s, a) => s + a.orders, 0);
 
-        const html = `
-            < div class="modal-table-wrapper" >
-                <table class="modal-table">
-                    <thead>
-                        <tr>
-                            <th>#</th>
-                            <th>Agent</th>
-                            <th>Sotuvlar</th>
-                            <th>Foyda</th>
-                            <th>Buyurtmalar</th>
-                            <th>Mijozlar</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${allAgents.map((a, i) => `
-                            <tr class="clickable-row" onclick="window.app.openAgentDetail('${a.id}', '${a.name.replace(/'/g, "\\'")}')" title="Mijozlarni ko'rish">
-                                <td>${i + 1}</td>
-                                <td>${a.name}</td>
-                                <td>${this.formatCurrency(a.sales)}</td>
-                                <td class="profit">${this.formatCurrency(a.profit)}</td>
-                                <td>${a.orders}</td>
-                                <td>${a.clients}</td>
+            const html = `
+                <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px;">
+                    <div style="background: linear-gradient(135deg, rgba(16,185,129,0.15), rgba(16,185,129,0.05)); border: 1px solid rgba(16,185,129,0.2); border-radius: 12px; padding: 14px; text-align: center;">
+                        <div style="color: var(--text-secondary); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;">Jami sotuvlar</div>
+                        <div style="font-size: 18px; font-weight: 700; color: #10b981; margin-top: 4px;">${this.formatCurrency(totalSales)}</div>
+                    </div>
+                    <div style="background: linear-gradient(135deg, rgba(139,92,246,0.15), rgba(139,92,246,0.05)); border: 1px solid rgba(139,92,246,0.2); border-radius: 12px; padding: 14px; text-align: center;">
+                        <div style="color: var(--text-secondary); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;">Jami foyda</div>
+                        <div style="font-size: 18px; font-weight: 700; color: #8b5cf6; margin-top: 4px;">${this.formatCurrency(totalProfit)}</div>
+                    </div>
+                    <div style="background: linear-gradient(135deg, rgba(59,130,246,0.15), rgba(59,130,246,0.05)); border: 1px solid rgba(59,130,246,0.2); border-radius: 12px; padding: 14px; text-align: center;">
+                        <div style="color: var(--text-secondary); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;">Buyurtmalar</div>
+                        <div style="font-size: 18px; font-weight: 700; color: #3b82f6; margin-top: 4px;">${totalOrders}</div>
+                    </div>
+                    <div style="background: linear-gradient(135deg, rgba(245,158,11,0.15), rgba(245,158,11,0.05)); border: 1px solid rgba(245,158,11,0.2); border-radius: 12px; padding: 14px; text-align: center;">
+                        <div style="color: var(--text-secondary); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;">Agentlar</div>
+                        <div style="font-size: 18px; font-weight: 700; color: #f59e0b; margin-top: 4px;">${allAgents.length}</div>
+                    </div>
+                </div>
+                <div class="modal-table-wrapper">
+                    <table class="modal-table">
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>Agent</th>
+                                <th>Sotuvlar</th>
+                                <th>Foyda</th>
+                                <th>Buyurtmalar</th>
+                                <th>Mijozlar</th>
                             </tr>
-                        `).join('')}
-                    </tbody>
-                </table>
-            </div >
+                        </thead>
+                        <tbody>
+                            ${allAgents.map((a, i) => `
+                                <tr class="clickable-row" onclick="window.app.openAgentDetail('${a.id}', '${a.name.replace(/'/g, "\\'")}')" title="Mijozlarni ko'rish" style="cursor: pointer;">
+                                    <td>${i + 1}</td>
+                                    <td style="font-weight: 600;">${a.name}</td>
+                                    <td style="color: #10b981; font-weight: 600;">${this.formatCurrency(a.sales)}</td>
+                                    <td style="color: #8b5cf6; font-weight: 600;">${this.formatCurrency(a.profit)}</td>
+                                    <td>${a.orders}</td>
+                                    <td>${a.clients}</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
             `;
 
-        body.innerHTML = html;
-        document.body.style.overflow = 'hidden';
+            body.innerHTML = html;
+            document.body.style.overflow = 'hidden';
+        } catch (error) {
+            console.error('Agentlar modal xatosi:', error);
+            body.innerHTML = '<p style="color: #ef4444;">Ma\'lumotlarni yuklashda xato yuz berdi</p>';
+        }
     }
 
     // ============ FOYDA MODAL - AGENTLAR BO'YICHA ============
@@ -3246,44 +3753,57 @@ class SalesDoctorApp {
         const body = document.getElementById('modalBody');
         if (!modal || !title || !body) return;
 
-        title.textContent = 'Agentlar bo\'yicha Foyda';
+        const periodNames = { 'today': 'Bugun', 'yesterday': 'Kecha', 'week': 'Hafta', 'month': 'Oy', 'quarter': 'Kvartal', 'year': 'Yil' };
+        title.textContent = `Agentlar bo'yicha Foyda (${periodNames[this.currentPeriod] || 'Bugun'})`;
         body.innerHTML = '<p style="text-align: center; padding: 40px;">Yuklanmoqda...</p>';
         modal.classList.add('active');
         document.body.style.overflow = 'hidden';
 
         try {
-            const { startDate, endDate } = this.getDateRange();
-            const allOrders = this.cachedOrders || [];
+            // Server cache dan period bo'yicha buyurtmalarni olish
+            const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+            const CACHE_BASE_URL = isLocal
+                ? 'http://localhost:3000'
+                : 'https://sd-analitika-production.up.railway.app';
+
+            const ordersRes = await this.fetchWithTimeout(`${CACHE_BASE_URL}/api/cache/orders/${this.currentPeriod}`, 5000);
+            const ordersData = await ordersRes.json();
+            const orders = (ordersData.status && ordersData.result?.order) ? ordersData.result.order : (this.cachedOrders || []);
+
+            // Agent nomlarni cache dan olish
+            let agentNameMap = {};
+            try {
+                const agentsRes = await this.fetchWithTimeout(`${CACHE_BASE_URL}/api/cache/agents`, 3000);
+                const agentsData = await agentsRes.json();
+                if (agentsData.status && agentsData.result?.agent) {
+                    agentsData.result.agent.forEach(a => {
+                        agentNameMap[a.SD_id] = a.name;
+                    });
+                }
+            } catch (e) { console.log('Agent nomlar yuklanmadi'); }
+
             const costPrices = await this.fetchCostPrices();
             const USD_RATE = this.getUsdRate();
 
-            // Agentlar bo'yicha foyda hisoblash
             const agentProfit = {};
-
-            allOrders.forEach(order => {
-                const orderDate = (order.dateCreate || order.dateDocument || '').split('T')[0].split(' ')[0];
-                if (orderDate < startDate || orderDate > endDate) return;
-
-                // Возврат ni o'tkazib yuborish
-                const statusName = order.status?.name || '';
-                if (statusName === 'Возврат' || statusName === 'Qaytarish' || statusName === 'Return') return;
+            orders.forEach(order => {
+                // Qaytarishlarni o'tkazib yuborish
+                if (order.status === 4 || order.status === 5) return;
+                const returnsSumma = parseFloat(order.totalReturnsSumma) || 0;
+                const totalSumma = parseFloat(order.totalSumma) || 0;
+                if (returnsSumma > 0 && returnsSumma === totalSumma) return;
 
                 const agentId = order.agent?.SD_id;
-                const agentName = order.agent?.name || 'Noma\'lum';
                 if (!agentId) return;
+                const agentName = agentNameMap[agentId] || order.agent?.name || `Agent ${agentId}`;
+                const isDollar = this.isUsdOrder(order);
+                const summaUZS = isDollar ? totalSumma * USD_RATE : totalSumma;
 
                 if (!agentProfit[agentId]) {
-                    agentProfit[agentId] = {
-                        name: agentName,
-                        sales: 0,
-                        profit: 0,
-                        orders: 0,
-                        clients: new Set()
-                    };
+                    agentProfit[agentId] = { name: agentName, sales: 0, profit: 0, orders: 0, clients: new Set() };
                 }
 
-                const orderSum = parseFloat(order.totalSumma) || 0;
-                agentProfit[agentId].sales += orderSum;
+                agentProfit[agentId].sales += summaUZS;
                 agentProfit[agentId].orders++;
                 if (order.client?.SD_id) agentProfit[agentId].clients.add(order.client.SD_id);
 
@@ -3291,10 +3811,18 @@ class SalesDoctorApp {
                 (order.orderProducts || []).forEach(item => {
                     const productId = item.product?.SD_id;
                     const quantity = parseFloat(item.quantity) || 0;
-                    const itemSumma = parseFloat(item.summa) || 0;
+                    const rawSumma = parseFloat(item.summa) || 0;
+                    const itemSummaUZS = isDollar ? rawSumma * USD_RATE : rawSumma;
                     const costData = costPrices[productId];
-
-                    agentProfit[agentId].profit += this.calculateProfit(itemSumma, costData?.costPriceUZS || 0, quantity);
+                    const costPriceUZS = costData?.costPriceUZS || 0;
+                    if (costPriceUZS > 0) {
+                        let p = itemSummaUZS - (costPriceUZS * quantity);
+                        if (p < 0) p = 0;
+                        if (p > itemSummaUZS * 0.50) p = itemSummaUZS * 0.15;
+                        agentProfit[agentId].profit += p;
+                    } else {
+                        agentProfit[agentId].profit += itemSummaUZS * 0.15;
+                    }
                 });
             });
 
@@ -3306,7 +3834,6 @@ class SalesDoctorApp {
                 totalSales += a.sales;
             });
 
-            // Foyda bo'yicha tartiblash
             const sortedAgents = Object.entries(agentProfit)
                 .map(([id, data]) => ({
                     id,
@@ -3320,43 +3847,47 @@ class SalesDoctorApp {
                 .sort((a, b) => b.profit - a.profit);
 
             const html = `
-                <div style="margin-bottom: 20px; padding: 16px; background: linear-gradient(135deg, #059669 0%, #10b981 100%); border-radius: 12px; color: white;">
-                    <div style="display: flex; justify-content: space-between; align-items: center;">
-                        <div>
-                            <div style="font-size: 14px; opacity: 0.8;">Jami Foyda</div>
-                            <div style="font-size: 28px; font-weight: 700;">${this.formatCurrency(totalProfit)}</div>
-                            <div style="font-size: 14px; opacity: 0.8;">$${Math.round(totalProfit / USD_RATE).toLocaleString()}</div>
-                        </div>
-                        <div style="text-align: right;">
-                            <div style="font-size: 14px; opacity: 0.8;">Jami Sotuvlar</div>
-                            <div style="font-size: 20px; font-weight: 600;">${this.formatCurrency(totalSales)}</div>
-                            <div style="font-size: 14px; opacity: 0.8;">${sortedAgents.length} ta agent</div>
-                        </div>
+                <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px;">
+                    <div style="background: linear-gradient(135deg, rgba(16,185,129,0.15), rgba(16,185,129,0.05)); border: 1px solid rgba(16,185,129,0.2); border-radius: 12px; padding: 14px; text-align: center;">
+                        <div style="color: var(--text-secondary); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;">Jami Foyda</div>
+                        <div style="font-size: 18px; font-weight: 700; color: #10b981; margin-top: 4px;">${this.formatCurrency(totalProfit)}</div>
+                        <div style="font-size: 12px; color: #10b981; opacity: 0.7;">$${Math.round(totalProfit / USD_RATE).toLocaleString()}</div>
+                    </div>
+                    <div style="background: linear-gradient(135deg, rgba(59,130,246,0.15), rgba(59,130,246,0.05)); border: 1px solid rgba(59,130,246,0.2); border-radius: 12px; padding: 14px; text-align: center;">
+                        <div style="color: var(--text-secondary); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;">Jami Sotuvlar</div>
+                        <div style="font-size: 18px; font-weight: 700; color: #3b82f6; margin-top: 4px;">${this.formatCurrency(totalSales)}</div>
+                    </div>
+                    <div style="background: linear-gradient(135deg, rgba(139,92,246,0.15), rgba(139,92,246,0.05)); border: 1px solid rgba(139,92,246,0.2); border-radius: 12px; padding: 14px; text-align: center;">
+                        <div style="color: var(--text-secondary); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;">Marja</div>
+                        <div style="font-size: 18px; font-weight: 700; color: #8b5cf6; margin-top: 4px;">${totalSales > 0 ? ((totalProfit / totalSales) * 100).toFixed(1) : 0}%</div>
+                    </div>
+                    <div style="background: linear-gradient(135deg, rgba(245,158,11,0.15), rgba(245,158,11,0.05)); border: 1px solid rgba(245,158,11,0.2); border-radius: 12px; padding: 14px; text-align: center;">
+                        <div style="color: var(--text-secondary); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;">Agentlar</div>
+                        <div style="font-size: 18px; font-weight: 700; color: #f59e0b; margin-top: 4px;">${sortedAgents.length}</div>
                     </div>
                 </div>
-                <p style="margin-bottom: 15px; color: var(--text-secondary); font-size: 13px;">
-                    👆 Agent ustiga bosib mijozlarini ko'ring
-                </p>
-                <div class="data-table-wrapper" style="max-height: 60vh; overflow-y: auto;">
-                    <table class="data-table">
+                <div class="modal-table-wrapper">
+                    <table class="modal-table">
                         <thead>
                             <tr>
                                 <th>#</th>
                                 <th>Agent</th>
-                                <th>Sotuvlar</th>
                                 <th>Foyda</th>
                                 <th>$ Foyda</th>
+                                <th>Sotuvlar</th>
+                                <th>Marja</th>
                                 <th>Buyurtmalar</th>
                             </tr>
                         </thead>
                         <tbody>
                             ${sortedAgents.map((a, i) => `
-                                <tr class="clickable-row" onclick="window.app.openAgentDetail('${a.id}', '${a.name.replace(/'/g, "\\'")}')" title="Mijozlarni ko'rish">
+                                <tr class="clickable-row" onclick="window.app.openAgentDetail('${a.id}', '${a.name.replace(/'/g, "\\'")}')" title="Mijozlarni ko'rish" style="cursor: pointer;">
                                     <td>${i + 1}</td>
-                                    <td><strong>${a.name}</strong></td>
-                                    <td>${this.formatCurrency(a.sales)}</td>
-                                    <td style="color: #10b981; font-weight: 600;">${this.formatCurrency(a.profit)}</td>
+                                    <td style="font-weight: 600;">${a.name}</td>
+                                    <td style="color: #10b981; font-weight: 700;">${this.formatCurrency(a.profit)}</td>
                                     <td style="color: #10b981;">$${a.profitUSD.toLocaleString()}</td>
+                                    <td>${this.formatCurrency(a.sales)}</td>
+                                    <td style="color: #8b5cf6;">${a.sales > 0 ? ((a.profit / a.sales) * 100).toFixed(1) : 0}%</td>
                                     <td>${a.orders}</td>
                                 </tr>
                             `).join('')}
@@ -3556,117 +4087,19 @@ class SalesDoctorApp {
         this.currentDebtCurrency = currency;
 
         try {
-            // Balanslarni olish
-            const balanceRes = await this.api.request('getBalance', {});
-            const balances = balanceRes.result?.balance || [];
+            // Cache serverdan tayyor agentDebts olish (barcha hisob server tomonida!)
+            const baseUrl = this.getCacheBaseUrl();
+            const debtRes = await fetch(`${baseUrl}/api/cache/agentDebts?currency=${currency}`);
+            const debtData = await debtRes.json();
 
-            // Agent nomlari mapping (SD_id -> name)
-            const agentNames = {
-                'd0_2': 'Nilufarxon',
-                'd0_3': 'Muxtorxon aka Onlem',
-                'd0_4': 'Ofis',
-                'd0_6': 'Usmonqulov Asadulloh',
-                'd0_7': 'Axmedova Xalimaxon',
-                'd0_8': 'Abduraxmonov Shuxrat',
-                'd0_9': 'Abdullayev Abdulhafiz',
-                'd0_10': 'Abduraximova Muxayyoxon',
-                'd0_11': 'Aliakbar Yusupov',
-                'd0_12': 'Abdulazizxon Aligarh',
-                'd0_13': 'Bahodirjon',
-                'd0_14': 'Lobarxon',
-                'd0_19': 'Soliev Ibrohimjon',
-                'd0_20': 'Oybek',
-                'd0_21': 'Maxmudov Abdulazizxon',
-                'd0_22': 'Tojiboyev Abubakir',
-                'd0_23': 'Nodirxon Dokon',
-                'd0_24': 'Xolmirzayeva Honzodaxon',
-                'd0_25': 'Xolmuxamedova Ziroatxon',
-                'd0_26': 'Ubaydullo',
-                'd0_27': 'Muxtorxon aka Sleppy',
-                'd0_28': 'Matkarimov Bexruz'
-            };
-
-            // Buyurtmalardan mijoz->agent mapping qilish va so'nggi buyurtma sanasini saqlash
-            const clientToAgent = {};
-            const clientLastOrder = {};  // Mijozning so'nggi buyurtma sanasi
-            const orders = this.cachedOrders || [];
-            orders.forEach(order => {
-                const clientId = order.client?.SD_id;
-                const agentId = order.agent?.SD_id;
-                const orderDate = order.dateCreate || order.dateDocument || '';
-
-                if (clientId && agentId) {
-                    if (!clientToAgent[clientId]) {
-                        clientToAgent[clientId] = agentId;
-                    }
-                    // So'nggi buyurtma sanasini saqlash (eng katta sana)
-                    if (!clientLastOrder[clientId] || orderDate > clientLastOrder[clientId]) {
-                        clientLastOrder[clientId] = orderDate;
-                    }
-                }
-            });
-
-            // Agentlar bo'yicha qarzdorlikni guruhlash (so'm va dollar alohida)
-            const agentDebts = {};
-
-            balances.forEach(b => {
-                // by-currency dan so'm va dollar olish
-                const byCurrency = b['by-currency'] || [];
-                let somDebt = 0;
-                let dollarDebt = 0;
-
-                byCurrency.forEach(c => {
-                    const amount = parseFloat(c.amount) || 0;
-                    if (c.currency_id === 'd0_2') { // So'm
-                        somDebt = amount;
-                    } else if (c.currency_id === 'd0_4') { // Dollar
-                        dollarDebt = amount;
-                    }
-                });
-
-                // Currency bo'yicha filtr
-                let shouldInclude = false;
-                if (currency === 'som' && somDebt < 0) shouldInclude = true;
-                else if (currency === 'dollar' && dollarDebt < 0) shouldInclude = true;
-                else if (currency === 'all' && (somDebt < 0 || dollarDebt < 0)) shouldInclude = true;
-
-                if (shouldInclude) {
-                    const agentId = clientToAgent[b.SD_id] || 'unknown';
-                    const agentName = agentNames[agentId] || `Agent ${agentId} `;
-
-                    if (!agentDebts[agentId]) {
-                        agentDebts[agentId] = {
-                            name: agentName,
-                            id: agentId,
-                            totalSom: 0,
-                            totalDollar: 0,
-                            clientCount: 0,
-                            clients: []
-                        };
-                    }
-                    agentDebts[agentId].totalSom += somDebt;
-                    agentDebts[agentId].totalDollar += dollarDebt;
-                    agentDebts[agentId].clientCount++;
-                    agentDebts[agentId].clients.push({
-                        name: b.name || 'Noma\'lum',
-                        somDebt: somDebt,
-                        dollarDebt: dollarDebt
-                    });
-                }
-            });
-
-            // Saralash
-            let sortedAgents;
-            if (currency === 'dollar') {
-                sortedAgents = Object.values(agentDebts).sort((a, b) => a.totalDollar - b.totalDollar);
-            } else if (currency === 'som') {
-                sortedAgents = Object.values(agentDebts).sort((a, b) => a.totalSom - b.totalSom);
-            } else {
-                sortedAgents = Object.values(agentDebts).sort((a, b) => a.totalDollar - b.totalDollar);
+            if (!debtData.status || !debtData.result?.agents) {
+                body.innerHTML = '<p style="text-align: center; padding: 40px;">Ma\'lumot topilmadi</p>';
+                return;
             }
 
-            const totalSom = sortedAgents.reduce((sum, a) => sum + a.totalSom, 0);
-            const totalDollar = sortedAgents.reduce((sum, a) => sum + a.totalDollar, 0);
+            const sortedAgents = debtData.result.agents;
+            const totalSom = debtData.totalSom || 0;
+            const totalDollar = debtData.totalDollar || 0;
 
             // Cache qilish
             this.cachedAgentDebts = sortedAgents;
@@ -3724,47 +4157,110 @@ class SalesDoctorApp {
                 `).join('');
             }
 
-            // Summary
-            let summaryHtml = '';
-            if (currency === 'som') {
-                summaryHtml = `
-                    <div class="summary-item">
-                        <span class="summary-label">Jami so'm</span>
-                        <span class="summary-value" style="color: #ef4444;">${this.formatCurrency(totalSom)}</span>
-                    </div>
+            // Barcha agentlardan umumiy srok statistikani hisoblash
+            let allOverdueClients = 0;
+            let allOverdueDollar = 0;
+            let allOverdueSom = 0;
+            let allTotalClients = 0;
+            let maxOverdueDays = 0;
+            sortedAgents.forEach(a => {
+                (a.clients || []).forEach(c => {
+                    allTotalClients++;
+                    if (c.isOverdue) {
+                        allOverdueClients++;
+                        allOverdueDollar += Math.abs(c.dollarDebt || 0);
+                        allOverdueSom += Math.abs(c.somDebt || 0);
+                        if ((c.overdueDays || 0) > maxOverdueDays) maxOverdueDays = c.overdueDays;
+                    }
+                });
+            });
+            const totalDollarAbs = Math.abs(totalDollar);
+            const overduePercent = totalDollarAbs > 0 ? Math.round((allOverdueDollar / totalDollarAbs) * 100) : 0;
+
+            // Agent table ga srok ustun qo'shish
+            if (currency === 'dollar') {
+                tableHeaders = `
+                    <th>#</th>
+                    <th>Agent ismi</th>
+                    <th>Mijozlar</th>
+                    <th>Dollar</th>
+                    <th>🔴 Srok o'tgan</th>
                 `;
-            } else if (currency === 'dollar') {
-                summaryHtml = `
-                    <div class="summary-item">
-                        <span class="summary-label">Jami dollar</span>
-                        <span class="summary-value" style="color: #ef4444;">$${Math.abs(totalDollar).toLocaleString()}</span>
-                    </div>
-                `;
+                tableRows = sortedAgents.map((a, i) => {
+                    const agentOverdue = (a.clients || []).filter(c => c.isOverdue);
+                    const agentOverdueDollar = agentOverdue.reduce((s, c) => s + Math.abs(c.dollarDebt || 0), 0);
+                    const agentMaxDays = agentOverdue.length > 0 ? Math.max(...agentOverdue.map(c => c.overdueDays || 0)) : 0;
+                    return `
+                    <tr style="cursor: pointer;" onclick="window.app?.showAgentClients('${a.id}')">
+                        <td>${i + 1}</td>
+                        <td>${a.name}</td>
+                        <td>${a.clientCount} ta</td>
+                        <td style="color: #ef4444;">$${Math.abs(a.totalDollar).toLocaleString()}</td>
+                        <td style="text-align:center;">${agentOverdue.length > 0
+                            ? `<span style="color:#ef4444;font-weight:700;">$${agentOverdueDollar.toLocaleString()}</span> <span style="color:#fca5a5;font-size:11px;">(${agentOverdue.length})</span>`
+                            : '<span style="color:#10b981;">✓</span>'
+                        }</td>
+                    </tr>
+                `}).join('');
             } else {
-                summaryHtml = `
-                    <div class="summary-item">
-                        <span class="summary-label">Jami so'm</span>
-                        <span class="summary-value" style="color: #ef4444;">${this.formatCurrency(totalSom)}</span>
-                    </div>
-                    <div class="summary-item">
-                        <span class="summary-label">Jami dollar</span>
-                        <span class="summary-value" style="color: #ef4444;">$${Math.abs(totalDollar).toLocaleString()}</span>
-                    </div>
+                tableHeaders = `
+                    <th>#</th>
+                    <th>Agent ismi</th>
+                    <th>Mijozlar</th>
+                    <th>So'm</th>
+                    <th>Dollar</th>
+                    <th>🔴 Srok o'tgan</th>
                 `;
+                tableRows = sortedAgents.map((a, i) => {
+                    const agentOverdue = (a.clients || []).filter(c => c.isOverdue);
+                    const agentOverdueDollar = agentOverdue.reduce((s, c) => s + Math.abs(c.dollarDebt || 0), 0);
+                    return `
+                    <tr style="cursor: pointer;" onclick="window.app?.showAgentClients('${a.id}')">
+                        <td>${i + 1}</td>
+                        <td>${a.name}</td>
+                        <td>${a.clientCount} ta</td>
+                        <td style="color: #ef4444;">${this.formatCurrency(a.totalSom)}</td>
+                        <td style="color: #ef4444;">$${Math.abs(a.totalDollar).toLocaleString()}</td>
+                        <td style="text-align:center;">${agentOverdue.length > 0
+                            ? `<span style="color:#ef4444;font-weight:700;">$${agentOverdueDollar.toLocaleString()}</span> <span style="color:#fca5a5;font-size:11px;">(${agentOverdue.length})</span>`
+                            : '<span style="color:#10b981;">✓</span>'
+                        }</td>
+                    </tr>
+                `}).join('');
             }
 
             body.innerHTML = `
-                <div class="modal-summary">
-                    ${summaryHtml}
-                    <div class="summary-item">
-                        <span class="summary-label">Agentlar</span>
-                        <span class="summary-value">${sortedAgents.length}</span>
+                <div style="
+                    display: grid;
+                    grid-template-columns: repeat(4, 1fr);
+                    gap: 8px;
+                    margin-bottom: 10px;
+                ">
+                    <div style="background: linear-gradient(135deg, rgba(59,130,246,0.15), rgba(59,130,246,0.05)); border: 1px solid rgba(59,130,246,0.25); border-radius: 10px; padding: 10px; text-align: center;">
+                        <div style="color: #93c5fd; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">Jami qarz</div>
+                        <div style="color: #60a5fa; font-size: 16px; font-weight: 800;">$${totalDollarAbs.toLocaleString()}</div>
+                        <div style="color: #6b7280; font-size: 10px; margin-top: 2px;">${allTotalClients} ta mijoz</div>
+                    </div>
+                    <div style="background: linear-gradient(135deg, rgba(239,68,68,0.2), rgba(239,68,68,0.05)); border: 1px solid rgba(239,68,68,0.35); border-radius: 10px; padding: 10px; text-align: center;">
+                        <div style="color: #fca5a5; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">🔴 Srok o'tgan</div>
+                        <div style="color: #ef4444; font-size: 16px; font-weight: 800;">$${allOverdueDollar.toLocaleString()}</div>
+                        <div style="color: #ef4444; font-size: 10px; margin-top: 2px; font-weight: 600;">${overduePercent}% — ${allOverdueClients} mijoz</div>
+                    </div>
+                    <div style="background: linear-gradient(135deg, rgba(245,158,11,0.15), rgba(245,158,11,0.05)); border: 1px solid rgba(245,158,11,0.3); border-radius: 10px; padding: 10px; text-align: center;">
+                        <div style="color: #fcd34d; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">⚠️ Max kechikish</div>
+                        <div style="color: #f59e0b; font-size: 16px; font-weight: 800;">${maxOverdueDays} kun</div>
+                        <div style="color: #6b7280; font-size: 10px; margin-top: 2px;">eng uzoq muddat</div>
+                    </div>
+                    <div style="background: linear-gradient(135deg, rgba(16,185,129,0.15), rgba(16,185,129,0.05)); border: 1px solid rgba(16,185,129,0.25); border-radius: 10px; padding: 10px; text-align: center;">
+                        <div style="color: #6ee7b7; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">✅ Muddatida</div>
+                        <div style="color: #10b981; font-size: 16px; font-weight: 800;">$${(totalDollarAbs - allOverdueDollar).toLocaleString()}</div>
+                        <div style="color: #10b981; font-size: 10px; margin-top: 2px;">${100 - overduePercent}% — ${allTotalClients - allOverdueClients} mijoz</div>
                     </div>
                 </div>
-                <p style="color: var(--text-secondary); font-size: 13px; margin-bottom: 16px;">
-                    👆 Agent ustiga bosing va uning mijozlarini ko'ring
-                </p>
-                <div class="data-table-wrapper" style="max-height: 55vh; overflow-y: auto;">
+                <div style="height:4px;background:rgba(16,185,129,0.3);border-radius:2px;margin-bottom:10px;overflow:hidden;">
+                    <div style="height:100%;width:${overduePercent}%;background:linear-gradient(90deg,#ef4444,#f97316);border-radius:2px;"></div>
+                </div>
+                <div class="data-table-wrapper" style="max-height: 50vh; overflow-y: auto;">
                     <table class="data-table">
                         <thead>
                             <tr>${tableHeaders}</tr>
@@ -3781,7 +4277,7 @@ class SalesDoctorApp {
         }
     }
 
-    // Agent mijozlarini ko'rsatish (срок bilan)
+    // Agent mijozlarini ko'rsatish (срок bilan) - CACHE dan tayyor
     async showAgentClients(agentId) {
         const agent = this.cachedAgentDebts?.find(a => a.id === agentId);
         if (!agent) return;
@@ -3790,52 +4286,23 @@ class SalesDoctorApp {
         const body = document.getElementById('modalBody');
 
         title.textContent = `${agent.name} - Qarzdor mijozlar`;
-        body.innerHTML = `<div style="text-align: center; padding: 40px;">
-            <div class="loading-spinner"></div>
-            <p style="color: var(--text-secondary); margin-top: 10px;">Срок ma'lumotlari yuklanmoqda...</p>
-        </div>`;
 
-        // Срок ma'lumotlarini olishga harakat qilamiz
-        let clientsWithSrok = [];
-        try {
-            const res = await fetch('/api/balanceWithSrok', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    serverUrl: this.api.config.serverUrl,
-                    auth: {
-                        userId: this.api.config.userId,
-                        token: this.api.config.token
-                    },
-                    agentId: agentId
-                })
-            });
-            const data = await res.json();
-            if (data.status && data.result?.clients) {
-                clientsWithSrok = data.result.clients;
-                console.log(`📅 Срок ma'lumotlari: ${clientsWithSrok.length} ta mijoz`);
-            }
-        } catch (e) {
-            console.warn('Срок API xatosi:', e);
-        }
-
-        // Agar API dan ma'lumot kelmasa, mavjud ma'lumotlarni ishlatamiz
-        let sortedClients;
-        if (clientsWithSrok.length > 0) {
-            // API dan kelgan ma'lumotlar - DOLLAR bo'yicha ko'pdan kamga tartiblash
-            sortedClients = clientsWithSrok.sort((a, b) => b.balanceDollar - a.balanceDollar);
-        } else {
-            // Fallback - eski ma'lumotlar (срок yo'q) - ko'pdan kamga
-            sortedClients = agent.clients.sort((a, b) => b.dollarDebt - a.dollarDebt).map(c => ({
-                name: c.name,
-                balanceTotal: c.somDebt,
-                balanceDollar: c.dollarDebt,
-                srokDate: '',
-                overdueDays: 0,
-                daysLeft: 0,
-                isOverdue: false
-            }));
-        }
+        // cachedAgentDebts da allaqachon srok bilan clients bor!
+        // Kuni o'tib ketgani bo'yicha tartiblash (eng ko'p muddati o'tgan birinchi)
+        const sortedClients = (agent.clients || []).sort((a, b) => {
+            const aOverdue = a.isOverdue ? a.overdueDays : -(a.daysLeft || 9999);
+            const bOverdue = b.isOverdue ? b.overdueDays : -(b.daysLeft || 9999);
+            return bOverdue - aOverdue; // Eng ko'p muddati o'tgan birinchi
+        }).map(c => ({
+            name: c.name,
+            balanceTotal: c.somDebt || 0,
+            balanceCash: c.somDebt || 0,
+            balanceDollar: c.dollarDebt || 0,
+            srokDate: c.srokDate || '',
+            overdueDays: c.overdueDays || 0,
+            daysLeft: c.daysLeft || 0,
+            isOverdue: c.isOverdue || false
+        }));
 
         // Срок ustunini ko'rsatish funksiyasi - FAQAT KUN HOLATI
         const formatSrok = (client) => {
@@ -3852,30 +4319,50 @@ class SalesDoctorApp {
             }
         };
 
+        // Srok o'tgan statistikani hisoblash
+        const overdueClients = sortedClients.filter(c => c.isOverdue);
+        const overdueDollarSum = overdueClients.reduce((s, c) => s + Math.abs(c.balanceDollar || 0), 0);
+        const overdueSomSum = overdueClients.reduce((s, c) => s + Math.abs(c.balanceTotal || 0), 0);
+        const totalDollarAbs = Math.abs(agent.totalDollar || 0);
+        const overduePercent = totalDollarAbs > 0 ? Math.round((overdueDollarSum / totalDollarAbs) * 100) : 0;
+        const maxOverdueDays = overdueClients.length > 0 ? Math.max(...overdueClients.map(c => c.overdueDays || 0)) : 0;
+
         body.innerHTML = `
-            <div class="modal-summary">
-                <div class="summary-item">
-                    <span class="summary-label">Jami so'm</span>
-                    <span class="summary-value" style="color: #ef4444;">${this.formatCurrency(agent.totalSom)}</span>
+            <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:10px;">
+                <div style="background:linear-gradient(135deg,rgba(59,130,246,0.15),rgba(59,130,246,0.05));border:1px solid rgba(59,130,246,0.25);border-radius:10px;padding:10px;text-align:center;">
+                    <div style="color:#93c5fd;font-size:10px;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Jami qarz</div>
+                    <div style="color:#60a5fa;font-size:16px;font-weight:800;">$${totalDollarAbs.toLocaleString()}</div>
+                    <div style="color:#6b7280;font-size:10px;margin-top:2px;">${sortedClients.length} ta mijoz</div>
                 </div>
-                <div class="summary-item">
-                    <span class="summary-label">Jami dollar</span>
-                    <span class="summary-value" style="color: #ef4444;">$${Math.abs(agent.totalDollar).toLocaleString()}</span>
+                <div style="background:linear-gradient(135deg,rgba(239,68,68,0.2),rgba(239,68,68,0.05));border:1px solid rgba(239,68,68,0.35);border-radius:10px;padding:10px;text-align:center;">
+                    <div style="color:#fca5a5;font-size:10px;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">🔴 Srok o'tgan</div>
+                    <div style="color:#ef4444;font-size:16px;font-weight:800;">$${overdueDollarSum.toLocaleString()}</div>
+                    <div style="color:#ef4444;font-size:10px;margin-top:2px;font-weight:600;">${overduePercent}% — ${overdueClients.length} mijoz</div>
                 </div>
-                <div class="summary-item">
-                    <span class="summary-label">Mijozlar</span>
-                    <span class="summary-value">${sortedClients.length}</span>
+                <div style="background:linear-gradient(135deg,rgba(245,158,11,0.15),rgba(245,158,11,0.05));border:1px solid rgba(245,158,11,0.3);border-radius:10px;padding:10px;text-align:center;">
+                    <div style="color:#fcd34d;font-size:10px;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">⚠️ Max kechikish</div>
+                    <div style="color:#f59e0b;font-size:16px;font-weight:800;">${maxOverdueDays} kun</div>
+                    <div style="color:#6b7280;font-size:10px;margin-top:2px;">eng uzoq muddat</div>
                 </div>
+                <div style="background:linear-gradient(135deg,rgba(16,185,129,0.15),rgba(16,185,129,0.05));border:1px solid rgba(16,185,129,0.25);border-radius:10px;padding:10px;text-align:center;">
+                    <div style="color:#6ee7b7;font-size:10px;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">✅ Muddatida</div>
+                    <div style="color:#10b981;font-size:16px;font-weight:800;">$${(totalDollarAbs - overdueDollarSum).toLocaleString()}</div>
+                    <div style="color:#10b981;font-size:10px;margin-top:2px;">${100 - overduePercent}% — ${sortedClients.length - overdueClients.length} mijoz</div>
+                </div>
+            </div>
+            <div style="height:4px;background:rgba(16,185,129,0.3);border-radius:2px;margin-bottom:8px;overflow:hidden;">
+                <div style="height:100%;width:${overduePercent}%;background:linear-gradient(90deg,#ef4444,#f97316);border-radius:2px;"></div>
             </div>
             <button onclick="window.app?.openDebtModal()" style="
                 background: rgba(0, 113, 227, 0.2);
                 border: 1px solid rgba(0, 113, 227, 0.5);
                 color: #0071e3;
-                padding: 8px 16px;
+                padding: 6px 14px;
                 border-radius: 8px;
                 cursor: pointer;
-                margin-bottom: 16px;
-            ">← Orqaga (Agentlar)</button>
+                margin-bottom: 10px;
+                font-size: 13px;
+            ">← Orqaga</button>
             <div class="data-table-wrapper" style="max-height: 50vh; overflow-y: auto;">
                 <table class="data-table">
                     <thead>
@@ -3888,15 +4375,19 @@ class SalesDoctorApp {
                         </tr>
                     </thead>
                     <tbody>
-                        ${sortedClients.map((c, i) => `
-                            <tr>
+                        ${sortedClients.map((c, i) => {
+            const rowBg = c.isOverdue
+                ? 'background: rgba(239,68,68,0.06);'
+                : (c.srokDate ? '' : '');
+            return `
+                            <tr style="${rowBg}">
                                 <td class="rank">${i + 1}</td>
                                 <td class="name">${c.name}</td>
                                 <td class="amount" style="color: #ef4444;">${this.formatCurrency(c.balanceTotal || c.balanceCash || 0)}</td>
                                 <td class="amount" style="color: #ef4444;">$${(c.balanceDollar || 0).toLocaleString()}</td>
                                 <td style="text-align: center;">${formatSrok(c)}</td>
                             </tr>
-                        `).join('')}
+                        `}).join('')}
                     </tbody>
                 </table>
             </div>
@@ -3936,40 +4427,61 @@ class SalesDoctorApp {
         const totalSum = sorted.reduce((sum, c) => sum + c.total, 0);
 
         return `
-            <div class="modal-summary">
-                <div class="summary-item">
-                    <span class="summary-label">Jami summa</span>
-                    <span class="summary-value positive">${this.formatCurrency(totalSum)}</span>
+            <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:10px;">
+                <div style="background:linear-gradient(135deg,rgba(52,199,89,0.15),rgba(52,199,89,0.05));border:1px solid rgba(52,199,89,0.25);border-radius:10px;padding:10px;text-align:center;">
+                    <div style="color:#6ee7b7;font-size:10px;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">💰 Jami summa</div>
+                    <div style="color:#34c759;font-size:16px;font-weight:800;">${this.formatCurrency(totalSum)}</div>
+                    <div style="color:#6b7280;font-size:10px;margin-top:2px;">so'm</div>
                 </div>
-                <div class="summary-item">
-                    <span class="summary-label">Mijozlar</span>
-                    <span class="summary-value">${sorted.length}</span>
+                <div style="background:linear-gradient(135deg,rgba(59,130,246,0.15),rgba(59,130,246,0.05));border:1px solid rgba(59,130,246,0.25);border-radius:10px;padding:10px;text-align:center;">
+                    <div style="color:#93c5fd;font-size:10px;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">👥 Mijozlar</div>
+                    <div style="color:#60a5fa;font-size:16px;font-weight:800;">${sorted.length}</div>
+                    <div style="color:#6b7280;font-size:10px;margin-top:2px;">ta xaridor</div>
                 </div>
-                <div class="summary-item">
-                    <span class="summary-label">Buyurtmalar</span>
-                    <span class="summary-value">${filteredOrders.length}</span>
+                <div style="background:linear-gradient(135deg,rgba(168,85,247,0.15),rgba(168,85,247,0.05));border:1px solid rgba(168,85,247,0.25);border-radius:10px;padding:10px;text-align:center;">
+                    <div style="color:#d8b4fe;font-size:10px;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">📦 Buyurtmalar</div>
+                    <div style="color:#a855f7;font-size:16px;font-weight:800;">${filteredOrders.length}</div>
+                    <div style="color:#6b7280;font-size:10px;margin-top:2px;">ta buyurtma</div>
+                </div>
+                <div style="background:linear-gradient(135deg,rgba(245,158,11,0.15),rgba(245,158,11,0.05));border:1px solid rgba(245,158,11,0.25);border-radius:10px;padding:10px;text-align:center;">
+                    <div style="color:#fcd34d;font-size:10px;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">📊 O'rtacha</div>
+                    <div style="color:#f59e0b;font-size:16px;font-weight:800;">${this.formatCurrency(filteredOrders.length > 0 ? Math.round(totalSum / filteredOrders.length) : 0)}</div>
+                    <div style="color:#6b7280;font-size:10px;margin-top:2px;">har buyurtma</div>
                 </div>
             </div>
-            <table class="data-table">
-                <thead>
-                    <tr>
-                        <th class="rank">#</th>
-                        <th>Mijoz nomi</th>
-                        <th>Buyurtmalar</th>
-                        <th>Jami summa</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    ${sorted.map((c, i) => `
+            <div class="data-table-wrapper" style="max-height: 55vh; overflow-y: auto;">
+                <table class="data-table">
+                    <thead>
                         <tr>
-                            <td class="rank">${i + 1}</td>
-                            <td class="name">${c.name}</td>
-                            <td class="count">${c.count} ta</td>
-                            <td class="amount">${this.formatCurrency(c.total)}</td>
+                            <th class="rank">#</th>
+                            <th>Mijoz nomi</th>
+                            <th>Buyurtmalar</th>
+                            <th>Jami summa</th>
+                            <th style="width:120px;">Ulush</th>
                         </tr>
-                    `).join('')}
-                </tbody>
-            </table>
+                    </thead>
+                    <tbody>
+                        ${sorted.map((c, i) => {
+            const percent = totalSum > 0 ? Math.round((c.total / totalSum) * 100) : 0;
+            return `
+                            <tr>
+                                <td class="rank">${i + 1}</td>
+                                <td class="name">${c.name}</td>
+                                <td class="count">${c.count} ta</td>
+                                <td class="amount" style="color:#34c759;">${this.formatCurrency(c.total)}</td>
+                                <td>
+                                    <div style="display:flex;align-items:center;gap:6px;">
+                                        <div style="flex:1;height:4px;background:rgba(255,255,255,0.06);border-radius:2px;overflow:hidden;">
+                                            <div style="height:100%;width:${percent}%;background:linear-gradient(90deg,#34c759,#30d158);border-radius:2px;"></div>
+                                        </div>
+                                        <span style="font-size:11px;color:#6b7280;min-width:30px;text-align:right;">${percent}%</span>
+                                    </div>
+                                </td>
+                            </tr>
+                        `}).join('')}
+                    </tbody>
+                </table>
+            </div>
         `;
     }
 
@@ -3986,35 +4498,50 @@ class SalesDoctorApp {
             return true;
         }).slice(0, 100);
 
+        const totalSum = filteredOrders.reduce((s, o) => s + (parseFloat(o.totalSumma) || 0), 0);
+
         return `
-            <div class="modal-summary">
-                <div class="summary-item">
-                    <span class="summary-label">Ko'rsatilgan</span>
-                    <span class="summary-value">${filteredOrders.length} ta</span>
+            <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:10px;">
+                <div style="background:linear-gradient(135deg,rgba(168,85,247,0.15),rgba(168,85,247,0.05));border:1px solid rgba(168,85,247,0.25);border-radius:10px;padding:10px;text-align:center;">
+                    <div style="color:#d8b4fe;font-size:10px;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">📦 Buyurtmalar</div>
+                    <div style="color:#a855f7;font-size:16px;font-weight:800;">${filteredOrders.length}</div>
+                    <div style="color:#6b7280;font-size:10px;margin-top:2px;">ta ko'rsatilgan</div>
+                </div>
+                <div style="background:linear-gradient(135deg,rgba(52,199,89,0.15),rgba(52,199,89,0.05));border:1px solid rgba(52,199,89,0.25);border-radius:10px;padding:10px;text-align:center;">
+                    <div style="color:#6ee7b7;font-size:10px;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">💰 Jami summa</div>
+                    <div style="color:#34c759;font-size:16px;font-weight:800;">${this.formatCurrency(totalSum)}</div>
+                    <div style="color:#6b7280;font-size:10px;margin-top:2px;">so'm</div>
+                </div>
+                <div style="background:linear-gradient(135deg,rgba(245,158,11,0.15),rgba(245,158,11,0.05));border:1px solid rgba(245,158,11,0.25);border-radius:10px;padding:10px;text-align:center;">
+                    <div style="color:#fcd34d;font-size:10px;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">📊 O'rtacha</div>
+                    <div style="color:#f59e0b;font-size:16px;font-weight:800;">${this.formatCurrency(filteredOrders.length > 0 ? Math.round(totalSum / filteredOrders.length) : 0)}</div>
+                    <div style="color:#6b7280;font-size:10px;margin-top:2px;">har buyurtma</div>
                 </div>
             </div>
-            <table class="data-table">
-                <thead>
-                    <tr>
-                        <th class="rank">#</th>
-                        <th>Sana</th>
-                        <th>Mijoz</th>
-                        <th>Agent</th>
-                        <th>Summa</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    ${filteredOrders.map((o, i) => `
+            <div class="data-table-wrapper" style="max-height: 55vh; overflow-y: auto;">
+                <table class="data-table">
+                    <thead>
                         <tr>
-                            <td class="rank">${i + 1}</td>
-                            <td>${(o.dateCreate || o.dateDocument || '').split('T')[0]}</td>
-                            <td class="name">${o.client?.clientName || o.client?.clientLegalName || '-'}</td>
-                            <td>${o.agent?.SD_id || '-'}</td>
-                            <td class="amount">${this.formatCurrency(parseFloat(o.totalSumma) || 0)}</td>
+                            <th class="rank">#</th>
+                            <th>Sana</th>
+                            <th>Mijoz</th>
+                            <th>Agent</th>
+                            <th>Summa</th>
                         </tr>
-                    `).join('')}
-                </tbody>
-            </table>
+                    </thead>
+                    <tbody>
+                        ${filteredOrders.map((o, i) => `
+                            <tr>
+                                <td class="rank">${i + 1}</td>
+                                <td style="color:#93c5fd;font-size:13px;">${(o.dateCreate || o.dateDocument || '').split('T')[0]}</td>
+                                <td class="name">${o.client?.clientName || o.client?.clientLegalName || '-'}</td>
+                                <td style="color:#d8b4fe;">${o.agent?.SD_id || '-'}</td>
+                                <td class="amount" style="color:#34c759;">${this.formatCurrency(parseFloat(o.totalSumma) || 0)}</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            </div>
         `;
     }
 
@@ -4108,42 +4635,63 @@ class SalesDoctorApp {
         const totalOrders = sorted.reduce((sum, a) => sum + a.count, 0);
 
         return `
-            <div class="modal-summary">
-                <div class="summary-item">
-                    <span class="summary-label">Jami so'm</span>
-                    <span class="summary-value positive">${this.formatCurrency(totalUZS)}</span>
+            <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:10px;">
+                <div style="background:linear-gradient(135deg,rgba(52,199,89,0.15),rgba(52,199,89,0.05));border:1px solid rgba(52,199,89,0.25);border-radius:10px;padding:10px;text-align:center;">
+                    <div style="color:#6ee7b7;font-size:10px;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">💰 Jami so'm</div>
+                    <div style="color:#34c759;font-size:16px;font-weight:800;">${this.formatCurrency(totalUZS)}</div>
+                    <div style="color:#6b7280;font-size:10px;margin-top:2px;">so'm</div>
                 </div>
-                <div class="summary-item">
-                    <span class="summary-label">Jami dollar</span>
-                    <span class="summary-value positive">$${totalUSD.toLocaleString()}</span>
+                <div style="background:linear-gradient(135deg,rgba(59,130,246,0.15),rgba(59,130,246,0.05));border:1px solid rgba(59,130,246,0.25);border-radius:10px;padding:10px;text-align:center;">
+                    <div style="color:#93c5fd;font-size:10px;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">💵 Jami dollar</div>
+                    <div style="color:#60a5fa;font-size:16px;font-weight:800;">$${totalUSD.toLocaleString()}</div>
+                    <div style="color:#6b7280;font-size:10px;margin-top:2px;">dollar</div>
                 </div>
-                <div class="summary-item">
-                    <span class="summary-label">Buyurtmalar</span>
-                    <span class="summary-value">${totalOrders}</span>
+                <div style="background:linear-gradient(135deg,rgba(168,85,247,0.15),rgba(168,85,247,0.05));border:1px solid rgba(168,85,247,0.25);border-radius:10px;padding:10px;text-align:center;">
+                    <div style="color:#d8b4fe;font-size:10px;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">📦 Buyurtmalar</div>
+                    <div style="color:#a855f7;font-size:16px;font-weight:800;">${totalOrders}</div>
+                    <div style="color:#6b7280;font-size:10px;margin-top:2px;">ta buyurtma</div>
+                </div>
+                <div style="background:linear-gradient(135deg,rgba(245,158,11,0.15),rgba(245,158,11,0.05));border:1px solid rgba(245,158,11,0.25);border-radius:10px;padding:10px;text-align:center;">
+                    <div style="color:#fcd34d;font-size:10px;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">👥 Agentlar</div>
+                    <div style="color:#f59e0b;font-size:16px;font-weight:800;">${sorted.length}</div>
+                    <div style="color:#6b7280;font-size:10px;margin-top:2px;">ta aktiv</div>
                 </div>
             </div>
-            <table class="data-table">
-                <thead>
-                    <tr>
-                        <th class="rank">#</th>
-                        <th>Agent ismi</th>
-                        <th>Buyurtmalar</th>
-                        <th>Savdo (so'm)</th>
-                        <th>Savdo ($)</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    ${sorted.map((a, i) => `
+            <div class="data-table-wrapper" style="max-height: 55vh; overflow-y: auto;">
+                <table class="data-table">
+                    <thead>
                         <tr>
-                            <td class="rank">${i + 1}</td>
-                            <td class="name">${a.name}</td>
-                            <td class="count">${a.count} ta</td>
-                            <td class="amount">${this.formatCurrency(a.totalUZS)}</td>
-                            <td class="amount">$${a.totalUSD.toLocaleString()}</td>
+                            <th class="rank">#</th>
+                            <th>Agent ismi</th>
+                            <th>Buyurtmalar</th>
+                            <th>Savdo (so'm)</th>
+                            <th>Savdo ($)</th>
+                            <th style="width:100px;">Ulush</th>
                         </tr>
-                    `).join('')}
-                </tbody>
-            </table>
+                    </thead>
+                    <tbody>
+                        ${sorted.map((a, i) => {
+            const percent = totalUZS > 0 ? Math.round((a.totalUZS / totalUZS) * 100) : 0;
+            return `
+                            <tr>
+                                <td class="rank">${i + 1}</td>
+                                <td class="name">${a.name}</td>
+                                <td style="color:#d8b4fe;">${a.count} ta</td>
+                                <td style="color:#34c759;font-weight:600;">${this.formatCurrency(a.totalUZS)}</td>
+                                <td style="color:#60a5fa;font-weight:600;">$${a.totalUSD.toLocaleString()}</td>
+                                <td>
+                                    <div style="display:flex;align-items:center;gap:4px;">
+                                        <div style="flex:1;height:4px;background:rgba(255,255,255,0.06);border-radius:2px;overflow:hidden;">
+                                            <div style="height:100%;width:${percent}%;background:linear-gradient(90deg,#34c759,#30d158);border-radius:2px;"></div>
+                                        </div>
+                                        <span style="font-size:10px;color:#6b7280;min-width:24px;text-align:right;">${percent}%</span>
+                                    </div>
+                                </td>
+                            </tr>
+                        `}).join('')}
+                    </tbody>
+                </table>
+            </div>
         `;
     }
 
@@ -4154,111 +4702,6 @@ class SalesDoctorApp {
         return (value < 0 ? '-' : '') + formatted;
     }
 
-    // Buyurtmalar bo'yicha foyda modali
-    openProfitModal() {
-        console.log('🔍 openProfitModal chaqirildi!');
-        const orderProfits = this.cachedOrderProfits;
-
-        if (!orderProfits || orderProfits.length === 0) {
-            alert('Ma\'lumot hali yuklanmagan. Sahifani yangilang.');
-            return;
-        }
-
-        // Foydasi bo'yicha tartiblash
-        const sortedOrders = [...orderProfits]
-            .sort((a, b) => b.profit - a.profit)
-            .slice(0, 50); // Top 50 buyurtma
-
-        const totalProfit = sortedOrders.reduce((s, o) => s + o.profit, 0);
-        const totalSales = sortedOrders.reduce((s, o) => s + o.sales, 0);
-        const orderCount = sortedOrders.length;
-
-        const modal = document.createElement('div');
-        modal.className = 'modern-modal';
-        modal.id = 'profitModal';
-        modal.innerHTML = `
-            <div class="modal-backdrop" onclick="this.parentElement.remove()"></div>
-            <div class="modal-content" style="max-width: 950px; max-height: 85vh; overflow-y: auto;">
-                <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-                    <h2 style="margin: 0; color: white;">Buyurtmalar bo'yicha Foyda</h2>
-                    <button onclick="this.closest('.modern-modal').remove()" style="background: none; border: none; color: #888; font-size: 24px; cursor: pointer;">×</button>
-                </div>
-                
-                <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin-bottom: 20px;">
-                    <div style="background: linear-gradient(135deg, #10b981, #059669); padding: 15px; border-radius: 12px; text-align: center;">
-                        <div style="font-size: 14px; opacity: 0.8;">Jami Foyda</div>
-                        <div style="font-size: 24px; font-weight: 700;">${this.formatCurrency(totalProfit)}</div>
-                    </div>
-                    <div style="background: linear-gradient(135deg, #3b82f6, #1d4ed8); padding: 15px; border-radius: 12px; text-align: center;">
-                        <div style="font-size: 14px; opacity: 0.8;">Jami Sotuv</div>
-                        <div style="font-size: 24px; font-weight: 700;">${this.formatCurrency(totalSales)}</div>
-                    </div>
-                    <div style="background: linear-gradient(135deg, #8b5cf6, #6d28d9); padding: 15px; border-radius: 12px; text-align: center;">
-                        <div style="font-size: 14px; opacity: 0.8;">Buyurtmalar</div>
-                        <div style="font-size: 24px; font-weight: 700;">${orderCount} ta</div>
-                    </div>
-                </div>
-                
-                <div id="ordersListContainer">
-                    ${sortedOrders.map((order, i) => {
-            const margin = order.sales > 0 ? (order.profit / order.sales * 100).toFixed(1) : 0;
-            const dateStr = order.date ? new Date(order.date).toLocaleDateString('ru-RU') : '-';
-            return `
-                        <div class="order-item" style="background: rgba(255,255,255,0.05); border-radius: 10px; margin-bottom: 10px; overflow: hidden;">
-                            <div class="order-header" onclick="window.app.toggleOrderProducts('${order.orderId}')" 
-                                 style="padding: 15px; cursor: pointer; display: grid; grid-template-columns: 40px 1fr 100px 120px 120px 80px; align-items: center; gap: 10px;">
-                                <span style="color: #888;">${i + 1}</span>
-                                <div>
-                                    <div style="font-weight: 500;">${order.orderId}</div>
-                                    <div style="font-size: 12px; color: #888;">${order.client} • ${dateStr}</div>
-                                </div>
-                                <span style="text-align: right; font-size: 12px; color: #888;">${order.products.length} mahsulot</span>
-                                <span style="text-align: right;">${this.formatCurrency(order.sales)}</span>
-                                <span style="text-align: right; color: #10b981; font-weight: 600;">${this.formatCurrency(order.profit)}</span>
-                                <span style="text-align: right; color: ${margin > 20 ? '#10b981' : margin > 10 ? '#f59e0b' : '#ef4444'};">${margin}%</span>
-                            </div>
-                            <div id="products-${order.orderId}" class="order-products" style="display: none; padding: 0 15px 15px; background: rgba(0,0,0,0.2);">
-                                <table style="width: 100%; font-size: 13px;">
-                                    <thead>
-                                        <tr style="color: #888;">
-                                            <th style="text-align: left; padding: 8px;">Mahsulot</th>
-                                            <th style="text-align: right; padding: 8px;">Miqdor</th>
-                                            <th style="text-align: right; padding: 8px;">Sotuv</th>
-                                            <th style="text-align: right; padding: 8px;">Foyda</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        ${order.products.map(p => {
-                const bonusTag = p.isBonus ? '<span style="background: #10b981; color: white; padding: 1px 4px; border-radius: 3px; font-size: 9px; margin-left: 4px;">BONUS</span>' : '';
-                return `
-                                            <tr style="border-top: 1px solid rgba(255,255,255,0.05);">
-                                                <td style="padding: 8px; max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${p.name}${bonusTag}</td>
-                                                <td style="padding: 8px; text-align: right;">${Math.round(p.quantity)}</td>
-                                                <td style="padding: 8px; text-align: right;">${this.formatCurrency(p.sales)}</td>
-                                                <td style="padding: 8px; text-align: right; color: #10b981;">${this.formatCurrency(p.profit)}</td>
-                                            </tr>
-                                        `;
-            }).join('')}
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-                    `;
-        }).join('')}
-                </div>
-            </div>
-        `;
-
-        document.body.appendChild(modal);
-    }
-
-    // Buyurtma mahsulotlarini ko'rsatish/yashirish
-    toggleOrderProducts(orderId) {
-        const productsDiv = document.getElementById(`products-${orderId}`);
-        if (productsDiv) {
-            productsDiv.style.display = productsDiv.style.display === 'none' ? 'block' : 'none';
-        }
-    }
 }
 
 // Initialize app

@@ -11,9 +11,9 @@
     <link
         href="https://fonts.googleapis.com/css2?family=SF+Pro+Display:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap"
         rel="stylesheet">
-    <link rel="stylesheet" href="styles.css?v=9">
-    <link rel="stylesheet" href="styles-additional.css?v=9">
-    <link rel="stylesheet" href="styles-premium.css?v=9">
+    <link rel="stylesheet" href="styles.css?v=10">
+    <link rel="stylesheet" href="styles-additional.css?v=10">
+    <link rel="stylesheet" href="styles-premium.css?v=10">
 </head>
 
 <body>
@@ -167,6 +167,7 @@
                 <!-- Date Filter -->
                 <div class="date-filter">
                     <button class="filter-btn active" data-period="today">Bugun</button>
+                    <button class="filter-btn" data-period="yesterday">Kecha</button>
                     <button class="filter-btn" data-period="week">Hafta</button>
                     <button class="filter-btn" data-period="month">Oy</button>
                     <button class="filter-btn" data-period="year">Yil</button>
@@ -174,6 +175,8 @@
                         <input type="date" id="startDate">
                         <span>—</span>
                         <input type="date" id="endDate">
+                        <button class="filter-btn" id="applyDateRange"
+                            style="margin-left: 8px; padding: 6px 12px;">✓</button>
                     </div>
                 </div>
 
@@ -211,7 +214,8 @@
                         </div>
                     </div>
 
-                    <div class="stat-card">
+                    <div class="stat-card clickable" onclick="window.app?.openOrdersModal()" style="cursor: pointer;"
+                        title="Buyurtmalarni ko'rish">
                         <div class="stat-icon orders">
                             <svg viewBox="0 0 24 24" fill="none">
                                 <path
@@ -222,42 +226,12 @@
                         <div class="stat-content">
                             <span class="stat-label">Buyurtmalar</span>
                             <span class="stat-value" id="totalOrders">0</span>
-                            <div class="stat-change positive">
-                                <svg viewBox="0 0 24 24" fill="none">
-                                    <path d="M18 15l-6-6-6 6" stroke="currentColor" stroke-width="2"
-                                        stroke-linecap="round" stroke-linejoin="round" />
-                                </svg>
-                                <span>+8.2%</span>
+                            <div style="font-size: 12px; color: var(--text-secondary); margin-top: 4px;">
+                                <span style="opacity: 0.7;">tanlangan davrda</span>
                             </div>
                         </div>
                         <div class="stat-chart">
                             <canvas id="ordersSparkline"></canvas>
-                        </div>
-                    </div>
-
-                    <!-- OKB - Umumiy Klient Baza -->
-                    <div class="stat-card clickable" onclick="window.app?.openActiveClientsModal()"
-                        style="cursor: pointer;" title="Aktiv mijozlarni ko'rish (AKB)">
-                        <div class="stat-icon clients" style="background: linear-gradient(135deg, #059669, #10b981);">
-                            <svg viewBox="0 0 24 24" fill="none">
-                                <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" stroke="currentColor" stroke-width="2"
-                                    stroke-linecap="round" />
-                                <circle cx="9" cy="7" r="4" stroke="currentColor" stroke-width="2" />
-                                <path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75" stroke="currentColor"
-                                    stroke-width="2" stroke-linecap="round" />
-                            </svg>
-                        </div>
-                        <div class="stat-content">
-                            <span class="stat-label">OKB (Umumiy)</span>
-                            <span class="stat-value" id="totalClientsOKB">0</span>
-                            <div style="font-size: 12px; color: var(--text-secondary); margin-top: 4px;">
-                                <span style="color: #10b981; font-weight: 600;">AKB: </span>
-                                <span id="totalClientsAKB" style="color: #10b981; font-weight: 600;">0</span>
-                                <span style="margin-left: 4px; opacity: 0.7;">aktiv</span>
-                            </div>
-                        </div>
-                        <div class="stat-chart">
-                            <canvas id="clientsSparkline"></canvas>
                         </div>
                     </div>
 
@@ -273,12 +247,8 @@
                         <div class="stat-content">
                             <span class="stat-label">Mahsulotlar</span>
                             <span class="stat-value" id="totalProducts">0</span>
-                            <div class="stat-change negative">
-                                <svg viewBox="0 0 24 24" fill="none">
-                                    <path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                                        stroke-linejoin="round" />
-                                </svg>
-                                <span>-2.1%</span>
+                            <div style="font-size: 12px; color: var(--text-secondary); margin-top: 4px;">
+                                <span style="opacity: 0.7;">jami</span>
                             </div>
                         </div>
                         <div class="stat-chart">
@@ -307,6 +277,11 @@
                                 <div class="currency-row secondary">
                                     <span class="stat-value-small iroda-usd" id="irodaAgentsSalesUSD">0</span>
                                     <span class="currency-label">$</span>
+                                </div>
+                                <div class="currency-row secondary" style="margin-top: 2px;">
+                                    <span class="stat-value-small" id="irodaAgentsOrders"
+                                        style="color: #a78bfa;">0</span>
+                                    <span class="currency-label">ta zakaz</span>
                                 </div>
                             </div>
                         </div>
@@ -579,8 +554,21 @@
 
             <!-- Agents Section -->
             <div class="section-content" id="agentsSection" style="display: none;">
-                <div class="section-header">
+                <div class="section-header"
+                    style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 20px;">
                     <h2>Agentlar</h2>
+                    <div class="date-filter" style="margin-bottom: 0; gap: 6px;">
+                        <button class="filter-btn agents-period-btn active" data-period="today"
+                            onclick="window.app?.loadAgentsSection('today')">Bugun</button>
+                        <button class="filter-btn agents-period-btn" data-period="yesterday"
+                            onclick="window.app?.loadAgentsSection('yesterday')">Kecha</button>
+                        <button class="filter-btn agents-period-btn" data-period="week"
+                            onclick="window.app?.loadAgentsSection('week')">Hafta</button>
+                        <button class="filter-btn agents-period-btn" data-period="month"
+                            onclick="window.app?.loadAgentsSection('month')">Oy</button>
+                        <button class="filter-btn agents-period-btn" data-period="year"
+                            onclick="window.app?.loadAgentsSection('year')">Yil</button>
+                    </div>
                 </div>
                 <div class="agents-grid" id="agentsGrid">
                     <!-- Agents will be loaded dynamically -->
@@ -696,13 +684,8 @@
         </div>
     </div>
 
-    <!-- Loading Overlay -->
-    <div class="loading-overlay" id="loadingOverlay">
-        <div class="loader">
-            <div class="loader-ring"></div>
-            <span>Yuklanmoqda...</span>
-        </div>
-    </div>
+    <!-- Loading Overlay o'chirildi - cache tezkor yuklaydi -->
+
 
     <!-- Toast Notifications -->
     <div class="toast-container" id="toastContainer"></div>
@@ -729,8 +712,8 @@
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="api.js?v=45"></script>
-    <script src="app.js?v=45"></script>
+    <script src="api.js?v=61"></script>
+    <script src="app.js?v=61"></script>
 </body>
 
 </html>
