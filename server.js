@@ -603,9 +603,17 @@ function formatLocalDate(date) {
     return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 }
 
-// Sana oralig'ini olish
-function getDateRange(period) {
+// O'zbekiston vaqtini olish (UTC+5)
+function getNowUzbekistan() {
     const now = new Date();
+    // UTC vaqtiga +5 soat qo'shish
+    const uzTime = new Date(now.getTime() + 5 * 60 * 60 * 1000);
+    return uzTime;
+}
+
+// Sana oralig'ini olish (O'zbekiston vaqtiga qarab)
+function getDateRange(period) {
+    const now = getNowUzbekistan();
     const endDate = formatLocalDate(now);
     let startDate;
 
