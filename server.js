@@ -251,7 +251,6 @@ async function fetchAllPaginated(method, resultKey, limit = 1000, maxPages = 20,
     let allItems = [];
     let page = 1;
     let hasMore = true;
-    let prevPageCount = 0;
 
     while (hasMore && page <= maxPages) {
         try {
@@ -268,14 +267,7 @@ async function fetchAllPaginated(method, resultKey, limit = 1000, maxPages = 20,
 
             if (items.length > 0) {
                 allItems = allItems.concat(items);
-                console.log(`   📄 ${method} sahifa ${page}: ${items.length} ta`);
-
-                // Keyingi sahifa bormi?
-                // Agar limitga yaqin (90%+) element qaytsa — davom etish
-                // Agar ancha kam qaytsa — to'xtatish
-                const threshold = Math.floor(limit * 0.9);
-                hasMore = items.length >= threshold;
-                prevPageCount = items.length;
+                hasMore = items.length === limit;
                 page++;
             } else {
                 hasMore = false;
