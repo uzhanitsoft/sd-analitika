@@ -217,7 +217,7 @@ async function fetchTransactionsData() {
 }
 
 // API so'rov helper
-async function apiRequest(method, params = {}) {
+async function apiRequest(method, params = {}, retried = false) {
     const { serverUrl, userId, token } = CACHE_CONFIG.API_CREDENTIALS;
     const apiUrl = `https://${serverUrl}/api/v2/`;
 
@@ -233,6 +233,18 @@ async function apiRequest(method, params = {}) {
         });
 
         const data = await response.json();
+
+        // Token expired — auto re-login
+        if (data.status === false && !retried) {
+            const errMsg = (data.error || '').toLowerCase();
+            if (errMsg.includes('token') || errMsg.includes('auth') || errMsg.includes('unauthorized') || errMsg.includes('user not found')) {
+                console.log(`   🔄 Token expired, qayta login...`);
+                const loginOk = await refreshToken();
+                if (loginOk) {
+                    return apiRequest(method, params, true); // retry
+                }
+            }
+        }
 
         // Xato tekshirish
         if (data.status === false) {
@@ -334,20 +346,13 @@ async function refreshCache() {
     }
 
     try {
-        // 1. Buyurtmalar - oxirgi 365 kunlik (Yillik statistika uchun)
-        console.log('📦 Buyurtmalar yuklanmoqda (365 kunlik)...');
+        // 1. Buyurtmalar - BARCHA buyurtmalarni olish
+        // MUHIM: SD API dateFilter bilan faqat cheklangan natija qaytaradi (1500 ta),
+        // Shuning uchun dateFilter SIZ barcha buyurtmalarni olib, server tomondan filtrlash kerak
+        console.log('� Buyurtmalar yuklanmoqda (barcha)...');
 
-        // Lokal sana (timezone muammosini hal qilish)
-        const now = new Date();
-        const endDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-
-        const oneYearAgo = new Date(now);
-        oneYearAgo.setDate(oneYearAgo.getDate() - 365);
-        const startDate = `${oneYearAgo.getFullYear()}-${String(oneYearAgo.getMonth() + 1).padStart(2, '0')}-${String(oneYearAgo.getDate()).padStart(2, '0')}`;
-
-        console.log(`   📅 Sana oralig'i: ${startDate} - ${endDate}`);
         // Max pages 100 * 500 = 50,000 buyurtma
-        serverCache.orders = await fetchAllPaginated('getOrder', 'order', 500, 100, { startDate, endDate });
+        serverCache.orders = await fetchAllPaginated('getOrder', 'order', 500, 100);
         console.log(`   ✅ ${serverCache.orders.length} ta buyurtma`);
 
         // 2. Mahsulotlar
@@ -557,7 +562,7 @@ function calculateStats() {
                 const orderStatus = order.status;
                 const totalSumma = parseFloat(order.totalSumma) || 0;
                 const returnsSumma = parseFloat(order.totalReturnsSumma) || 0;
-                if (orderStatus === 4 || orderStatus === 5 || (returnsSumma > 0 && returnsSumma === totalSumma)) return;
+                if (orderStatus === 4 || orderStatus === 5 || (returnsSumma > 0 && returnsSumma === totalSumma) || totalSumma === 0) return;
 
                 const sum = totalSumma;
                 const paymentTypeId = order.paymentType?.SD_id;

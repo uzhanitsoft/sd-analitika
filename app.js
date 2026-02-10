@@ -1143,8 +1143,8 @@ class SalesDoctorApp {
                 const totalSumma = parseFloat(order.totalSumma) || 0;
                 const returnsSumma = parseFloat(order.totalReturnsSumma) || 0;
 
-                // status 4 = Возврат, status 5 = boshqa qaytarish
-                if (orderStatus === 4 || orderStatus === 5 || (returnsSumma > 0 && returnsSumma === totalSumma)) {
+                // status 4 = Возврат, status 5 = boshqa qaytarish, summa = 0 = bo'sh buyurtma
+                if (orderStatus === 4 || orderStatus === 5 || (returnsSumma > 0 && returnsSumma === totalSumma) || totalSumma === 0) {
                     return; // Bu qaytarishni hisoblamaymiz
                 }
 
