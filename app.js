@@ -5121,7 +5121,7 @@ class SalesDoctorApp {
                             <tr style="cursor:pointer;transition:background 0.2s;" 
                                 onmouseenter="this.style.background='rgba(245,158,11,0.08)'" 
                                 onmouseleave="this.style.background='transparent'"
-                                onclick="window.app?.showAgentClients('${a.id}')">
+                                onclick="window.app?.showSalesAgentClients('${a.id}')">
                                 <td class="rank">${i + 1}</td>
                                 <td class="name" style="color:#f59e0b;">🧑‍💼 ${a.name}</td>
                                 <td class="count">${clientCount} ta</td>
@@ -5145,7 +5145,7 @@ class SalesDoctorApp {
     }
 
     // Agent bosilganda — uning mijozlarini ko'rsatish
-    showAgentClients(agentId) {
+    showSalesAgentClients(agentId) {
         const agent = this._salesAgentData?.[agentId];
         if (!agent) return;
 
