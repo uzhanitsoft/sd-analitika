@@ -45,6 +45,7 @@ let serverCache = {
     priceTypes: null,       // Narx turlari
     agents: null,           // Agentlar
     transactions: null,     // Web panel transactions (SROK bilan!)
+    catalogPrices: null,    // Web paneldan barcha narxlar (product -> priceType -> price)
     stats: null,            // Hisoblangan statistika
     lastUpdate: null,       // Oxirgi yangilanish
     isLoading: false,       // Yuklanish holati
@@ -216,6 +217,94 @@ async function fetchTransactionsData() {
     }
 }
 
+// 📊 Web paneldan barcha narxlarni olish (catalog prices)
+async function fetchCatalogPrices() {
+    try {
+        const { serverUrl } = CACHE_CONFIG.API_CREDENTIALS;
+        const webBase = `https://${serverUrl}`;
+        const cookieStr = Object.keys(webSessionCookies).map(k => k + '=' + webSessionCookies[k]).join('; ');
+
+        const res = await fetch(webBase + '/catalog', {
+            method: 'POST',
+            headers: {
+                'Cookie': cookieStr,
+                'User-Agent': 'Mozilla/5.0',
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+                'X-Requested-With': 'XMLHttpRequest'
+            },
+            body: JSON.stringify({
+                active: {
+                    priceTypes: ['id', 'name', 'type', 'currency'],
+                },
+                all: {
+                    prices: ['id', 'price_type_id', 'product_id', 'price'],
+                    currencies: ['id', 'name', 'code', 'title'],
+                }
+            })
+        });
+
+        if (res.status !== 200) {
+            throw new Error(`Catalog status: ${res.status}`);
+        }
+
+        const data = await res.json();
+
+        // Transform data — priceTypes jadvalidagi birinchi qator = sarlavhalar
+        const priceTypesData = {};
+        if (data.priceTypes && data.priceTypes.length > 1) {
+            const headers = data.priceTypes[0]; // ['id', 'name', 'type', 'currency']
+            for (let i = 1; i < data.priceTypes.length; i++) {
+                const row = data.priceTypes[i];
+                const obj = {};
+                headers.forEach((h, idx) => obj[h] = row[idx]);
+                priceTypesData[obj.id] = obj;
+            }
+        }
+
+        // Transform currencies
+        const currenciesData = {};
+        if (data.currencies && data.currencies.length > 1) {
+            const headers = data.currencies[0];
+            for (let i = 1; i < data.currencies.length; i++) {
+                const row = data.currencies[i];
+                const obj = {};
+                headers.forEach((h, idx) => obj[h] = row[idx]);
+                currenciesData[obj.id] = obj;
+            }
+        }
+
+        // Transform prices — product -> priceType -> price
+        const productPrices = {};
+        if (data.prices && data.prices.length > 1) {
+            const headers = data.prices[0]; // ['id', 'price_type_id', 'product_id', 'price']
+            for (let i = 1; i < data.prices.length; i++) {
+                const row = data.prices[i];
+                const obj = {};
+                headers.forEach((h, idx) => obj[h] = row[idx]);
+
+                const productId = obj.product_id;
+                const priceTypeId = obj.price_type_id;
+                const price = parseFloat(obj.price) || 0;
+
+                if (!productPrices[productId]) {
+                    productPrices[productId] = {};
+                }
+                productPrices[productId][priceTypeId] = price;
+            }
+        }
+
+        return {
+            priceTypes: priceTypesData,
+            currencies: currenciesData,
+            productPrices: productPrices
+        };
+    } catch (error) {
+        console.error('❌ Catalog prices fetch xatosi:', error.message);
+        return null;
+    }
+}
+
 // API so'rov helper
 async function apiRequest(method, params = {}, retried = false) {
     const { serverUrl, userId, token } = CACHE_CONFIG.API_CREDENTIALS;
@@ -236,7 +325,7 @@ async function apiRequest(method, params = {}, retried = false) {
 
         // Token expired — auto re-login
         if (data.status === false && !retried) {
-            const errMsg = (data.error || '').toLowerCase();
+            const errMsg = (typeof data.error === 'string' ? data.error : JSON.stringify(data.error || '')).toLowerCase();
             if (errMsg.includes('token') || errMsg.includes('auth') || errMsg.includes('unauthorized') || errMsg.includes('user not found')) {
                 console.log(`   🔄 Token expired, qayta login...`);
                 const loginOk = await refreshToken();
@@ -404,6 +493,16 @@ async function refreshCache() {
         const webLoggedIn = await webLogin();
         if (webLoggedIn) {
             serverCache.transactions = await fetchTransactionsData();
+
+            // 8.6. Web paneldan barcha narxlarni olish (catalog prices)
+            console.log('💰 Catalog narxlar yuklanmoqda (web panel)...');
+            try {
+                serverCache.catalogPrices = await fetchCatalogPrices();
+                const totalPrices = serverCache.catalogPrices ? Object.keys(serverCache.catalogPrices.productPrices || {}).length : 0;
+                console.log(`   ✅ ${totalPrices} ta mahsulot narxi yuklandi`);
+            } catch (err) {
+                console.log(`   ⚠️ Catalog narxlar yuklanmadi: ${err.message}`);
+            }
         } else {
             console.log('   ⚠️ Web login muvaffaqiyatsiz, srok eski hisoblanadi');
         }
@@ -575,6 +674,41 @@ function calculateStats() {
             }
         });
 
+        // Ostatka qiymatini hisoblash (dollar) — modal bilan bir xil usulda
+        const warehouses = serverCache.stock || [];
+        const stockMap = {};
+        warehouses.forEach(warehouse => {
+            (warehouse.products || []).forEach(item => {
+                const productId = item.SD_id;
+                const quantity = parseFloat(item.quantity) || 0;
+                stockMap[productId] = (stockMap[productId] || 0) + quantity;
+            });
+        });
+
+        // priceMap — modal bilan bir xil usul (oxirgi occurrence)
+        const priceMap = {};
+        purchases.forEach(p => {
+            (p.detail || []).forEach(item => {
+                const productId = item.SD_id;
+                const price = parseFloat(item.price) || 0;
+                if (price > 0) {
+                    priceMap[productId] = price;
+                }
+            });
+        });
+
+        let stockValueUSD = 0;
+        products.forEach(product => {
+            const productId = product.SD_id;
+            const ostatka = stockMap[productId] || 0;
+            const rawPrice = priceMap[productId] || 0;
+
+            if (ostatka > 0 && rawPrice > 0) {
+                const costPriceUSD = rawPrice < 100 ? rawPrice : rawPrice / USD_RATE;
+                stockValueUSD += costPriceUSD * ostatka;
+            }
+        });
+
         stats[period] = {
             totalSalesUZS,
             totalSalesUSD,
@@ -582,6 +716,7 @@ function calculateStats() {
             totalClientsOKB: clients.length,
             totalClientsAKB: activeClients.size,
             totalProducts: products.length,
+            stockValueUSD: Math.round(stockValueUSD),
             totalProfitUZS,
             totalProfitUSD: Math.round(totalProfitUSD),
             irodaSalesUZS,
@@ -604,16 +739,17 @@ function calculateStats() {
 }
 
 // Lokal sanani formatlash (timezone muammosini hal qilish)
-function formatLocalDate(date) {
-    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-}
-
 // O'zbekiston vaqtini olish (UTC+5)
 function getNowUzbekistan() {
     const now = new Date();
     // UTC vaqtiga +5 soat qo'shish
     const uzTime = new Date(now.getTime() + 5 * 60 * 60 * 1000);
     return uzTime;
+}
+
+function formatLocalDate(date) {
+    // getNowUzbekistan allaqachon UTC+5 qo'shgan, shuning uchun UTC komponentlarini ishlatamiz
+    return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`;
 }
 
 // Sana oralig'ini olish (O'zbekiston vaqtiga qarab)
@@ -713,6 +849,7 @@ app.get('/api/cache/stats/:period', (req, res) => {
     res.json({
         status: true,
         result: serverCache.stats[period],
+        serverRate: 12200,
         lastUpdate: serverCache.lastUpdate
     });
 });
@@ -802,6 +939,147 @@ app.get('/api/cache/purchases', (req, res) => {
         status: true,
         result: { warehouse: serverCache.purchases },
         total: serverCache.purchases.length,
+        lastUpdate: serverCache.lastUpdate
+    });
+});
+
+// ============================================
+// NARX TEKSHIRISH — Prixod bo'yicha narxlar
+// ============================================
+app.get('/api/cache/priceCheck', (req, res) => {
+    if (!serverCache.purchases || !serverCache.priceTypes) {
+        return res.json({ status: false, error: 'Cache hali tayyor emas' });
+    }
+
+    const purchases = serverCache.purchases || [];
+    const priceTypes = serverCache.priceTypes || [];
+    const catalog = serverCache.catalogPrices || null;
+
+    // PriceType xaritasi — ID -> name, currency (API dan)
+    const priceTypeMap = {};
+    priceTypes.forEach(pt => {
+        priceTypeMap[pt.SD_id] = {
+            name: pt.name,
+            paymentTypeId: pt.paymentType?.SD_id || '',
+            currency: pt.paymentType?.SD_id === 'd0_4' ? 'USD' : 'UZS'
+        };
+    });
+
+    // Catalog dan kelgan priceTypes (web panel dan)
+    // catalog.priceTypes = { id: { id, name, type, currency(currencyId) } }
+    // catalog.currencies = { id: { id, name, code, title } }
+    // catalog.productPrices = { productId: { priceTypeId: price } }
+    const catalogPriceTypes = catalog?.priceTypes || {};
+    const catalogCurrencies = catalog?.currencies || {};
+    const catalogProductPrices = catalog?.productPrices || {};
+
+    // Narx turlari ro'yxati — faqat sotish narxlari (type=2)
+    // type=1 kirim (purchase) — allaqachon kirim narx ustunida ko'rsatiladi
+    const allPriceTypesList = [];
+    // Keraksiz narx turlarini chiqarib tashlash
+    const hiddenPriceTypes = new Set(['d0_7', 'd0_8', 'd0_13', 'd0_14']); // Chakana $, Optom $, Nodir aka dokon, Elaro Narx
+    Object.values(catalogPriceTypes).forEach(pt => {
+        if (pt.type === '1' || pt.type === 1) return; // Kirim narxlarni o'tkazib yuborish
+        if (hiddenPriceTypes.has(pt.id)) return; // Keraksiz narx turlarini o'tkazib yuborish
+        const currencyInfo = catalogCurrencies[pt.currency] || {};
+        const currencyCode = currencyInfo.code || '';
+        const isUsd = currencyCode.toLowerCase().includes('usd') ||
+            currencyCode.toLowerCase().includes('dollar') ||
+            currencyInfo.name?.toLowerCase().includes('dollar');
+        allPriceTypesList.push({
+            id: pt.id,
+            name: pt.name,
+            type: pt.type,
+            currency: isUsd ? 'USD' : 'UZS',
+            currencyName: currencyInfo.name || ''
+        });
+    });
+
+    // Prixod hujjatlarini sanasi bo'yicha tartiblash (eng yangi birinchi)
+    const documents = purchases
+        .map(p => {
+            const ptId = p.priceType?.SD_id || 'unknown';
+            const ptInfo = priceTypeMap[ptId] || { name: 'Noma\'lum', currency: 'UZS' };
+            return {
+                id: p.purchase_id || p.SD_id,
+                date: p.date || '',
+                warehouseName: p.name || '',
+                shipperName: p.shipper?.name || '',
+                priceType: {
+                    id: ptId,
+                    name: ptInfo.name,
+                    currency: ptInfo.currency
+                },
+                items: (p.detail || []).map(item => {
+                    const productId = item.SD_id;
+
+                    // Catalog dan barcha narxlarni olish
+                    const catalogPricesForProduct = catalogProductPrices[productId] || {};
+                    const otherPrices = {};
+
+                    allPriceTypesList.forEach(pt => {
+                        // Hozirgi prixodning o'z priceType dan tashqari barcha narxlarni
+                        if (pt.id !== ptId && catalogPricesForProduct[pt.id] !== undefined) {
+                            otherPrices[pt.id] = {
+                                price: catalogPricesForProduct[pt.id],
+                                currency: pt.currency,
+                                name: pt.name
+                            };
+                        }
+                    });
+
+                    return {
+                        productId: productId,
+                        name: item.name,
+                        quantity: parseFloat(item.quantity) || 0,
+                        price: parseFloat(item.price) || 0,
+                        amount: parseFloat(item.amount) || 0,
+                        currency: ptInfo.currency,
+                        otherPrices: otherPrices
+                    };
+                })
+            };
+        })
+        .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+
+    // Barcha narx turlari xaritasi (frontend uchun)
+    const fullPriceTypeMap = {};
+    allPriceTypesList.forEach(pt => {
+        fullPriceTypeMap[pt.id] = {
+            name: pt.name,
+            currency: pt.currency,
+            type: pt.type
+        };
+    });
+
+    // Dollar kursini catalog narxlardan hisoblash
+    // d0_1 = Приходная цена ($), d0_12 = Приходная цена (сум)
+    let usdRate = 12800; // default
+    const rates = [];
+    Object.values(catalogProductPrices).forEach(prices => {
+        const usdPrice = prices['d0_1'];
+        const uzsPrice = prices['d0_12'];
+        if (usdPrice > 0 && uzsPrice > 0) {
+            const rate = uzsPrice / usdPrice;
+            if (rate > 5000 && rate < 20000) { // Oqilona diapazonda
+                rates.push(rate);
+            }
+        }
+    });
+    if (rates.length > 0) {
+        rates.sort((a, b) => a - b);
+        usdRate = rates[Math.floor(rates.length / 2)]; // Median
+    }
+
+    res.json({
+        status: true,
+        documents: documents,
+        priceTypes: fullPriceTypeMap,
+        allPriceTypes: allPriceTypesList,
+        usdRate: Math.round(usdRate),
+        totalDocuments: documents.length,
+        totalProducts: Object.keys(catalogProductPrices).length,
+        hasCatalogPrices: !!catalog,
         lastUpdate: serverCache.lastUpdate
     });
 });
@@ -1064,14 +1342,19 @@ app.get('/api/cache/agentDebts', (req, res) => {
 
     serverCache.balances.forEach(b => {
         const byCurrency = b['by-currency'] || [];
-        let somDebt = 0;
+        let naqdDebt = 0;
+        let beznalDebt = 0;
         let dollarDebt = 0;
 
         byCurrency.forEach(c => {
             const amount = parseFloat(c.amount) || 0;
-            if (c.currency_id === 'd0_2') somDebt = amount;
-            else if (c.currency_id === 'd0_4') dollarDebt = amount;
+            if (c.currency_id === 'd0_2') naqdDebt = amount;       // Naqd so'm
+            else if (c.currency_id === 'd0_3') beznalDebt = amount; // Beznal so'm
+            else if (c.currency_id === 'd0_4') dollarDebt = amount; // Dollar
         });
+
+        // So'm = Naqd + Beznal (Sales Doctor bilan bir xil)
+        const somDebt = naqdDebt + beznalDebt;
 
         // Currency filtr
         let shouldInclude = false;
@@ -1617,4 +1900,3 @@ app.listen(PORT, () => {
         refreshCache();
     }, CACHE_CONFIG.REFRESH_INTERVAL);
 });
-

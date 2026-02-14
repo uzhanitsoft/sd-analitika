@@ -117,7 +117,7 @@ class SalesDoctorApp {
         updateIfExists('totalOrders', '0');
         updateIfExists('totalClientsOKB', '0');
         updateIfExists('totalClientsAKB', '0');
-        updateIfExists('totalProducts', '0');
+        updateIfExists('stockValueUSD', '$0');
 
         console.log('📊 Empty stats shown (elements may not exist)');
     }
@@ -288,6 +288,11 @@ class SalesDoctorApp {
 
             // Dashboard'ni qayta yuklash
             this.loadDashboard();
+
+            // PriceCheck bo'limini ham qayta render qilish (agar ochiq bo'lsa)
+            if (this.priceCheckAllDocs && this.priceCheckAllDocs.length > 0) {
+                this.filterPriceCheck();
+            }
         } else {
             this.showToast('error', 'Xato', 'Kurs 1,000 - 50,000 oralig\'ida bo\'lishi kerak');
         }
@@ -392,19 +397,24 @@ class SalesDoctorApp {
 
             if (statsData.status && statsData.result) {
                 const stats = statsData.result;
+                const userRate = this.getUsdRate();
+                // Server qaysi kurs bilan hisoblagan bo'lsa, biz foydalanuvchi kursiga qayta hisoblaymiz
+                const SERVER_RATE = statsData.serverRate || 12200;
+                const recalcUSD = (serverUSD) => Math.round(serverUSD * SERVER_RATE / userRate);
 
                 // UI yangilash
                 this.animateValue('totalSalesUZS', 0, stats.totalSalesUZS, 1500, this.formatCurrency.bind(this));
-                this.animateValue('totalSalesUSD', 0, stats.totalSalesUSD, 1500, this.formatNumber.bind(this));
+                this.animateValue('totalSalesUSD', 0, recalcUSD(stats.totalSalesUSD), 1500, this.formatNumber.bind(this));
                 this.animateValue('totalOrders', 0, stats.totalOrders, 1200, this.formatNumber.bind(this));
                 this.animateValue('totalClientsAKB', 0, stats.totalClientsAKB, 1000, this.formatNumber.bind(this));
-                this.animateValue('totalProducts', 0, stats.totalProducts, 800, this.formatNumber.bind(this));
+                const stockEl = document.getElementById('stockValueUSD');
+                if (stockEl) stockEl.textContent = '$' + recalcUSD(stats.stockValueUSD || 0).toLocaleString();
 
                 // Foyda
                 const profitUZSEl = document.getElementById('totalProfitUZS');
                 const profitUSDEl = document.getElementById('totalProfitUSD');
                 if (profitUZSEl) profitUZSEl.textContent = Math.round(stats.totalProfitUZS).toLocaleString('ru-RU');
-                if (profitUSDEl) profitUSDEl.textContent = '$' + stats.totalProfitUSD.toLocaleString();
+                if (profitUSDEl) profitUSDEl.textContent = '$' + recalcUSD(stats.totalProfitUSD).toLocaleString();
 
                 // Iroda agentlari
                 const formatMln = (value) => {
@@ -415,7 +425,7 @@ class SalesDoctorApp {
                 const irodaUSDEl = document.getElementById('irodaAgentsSalesUSD');
                 const irodaOrdersEl = document.getElementById('irodaAgentsOrders');
                 if (irodaUZSEl) irodaUZSEl.textContent = formatMln(stats.irodaSalesUZS || 0);
-                if (irodaUSDEl) irodaUSDEl.textContent = (stats.irodaSalesUSD || 0) > 0 ? '$' + (stats.irodaSalesUSD || 0).toLocaleString() : '$0';
+                if (irodaUSDEl) irodaUSDEl.textContent = recalcUSD(stats.irodaSalesUSD || 0) > 0 ? '$' + recalcUSD(stats.irodaSalesUSD || 0).toLocaleString() : '$0';
                 if (irodaOrdersEl) irodaOrdersEl.textContent = stats.irodaOrders || 0;
 
                 // Cache vaqtini ko'rsatish
@@ -434,8 +444,10 @@ class SalesDoctorApp {
             this.hideLoading();
 
             // 3️⃣ Background da qolgan elementlarni yuklash
-            this.loadCachedCharts(CACHE_BASE_URL).catch(e => console.error('Chart xatosi:', e));
-            this.loadCachedTables(CACHE_BASE_URL).catch(e => console.error('Table xatosi:', e));
+            // Charts avval yuklanadi (orders cache'lanadi), keyin tables shu cache'dan foydalanadi
+            this.loadCachedCharts(CACHE_BASE_URL)
+                .then(() => this.loadCachedTables(CACHE_BASE_URL))
+                .catch(e => console.error('Chart/Table xatosi:', e));
             this.loadDebtAndPaymentStats();
             this.loadKassaStats(CACHE_BASE_URL);
 
@@ -481,11 +493,15 @@ class SalesDoctorApp {
     // 🚀 Cache dan tablelarni yuklash
     async loadCachedTables(baseUrl) {
         try {
-            const ordersRes = await fetch(`${baseUrl}/api/cache/orders/${this.currentPeriod}`);
-            const ordersData = await ordersRes.json();
-
-            if (ordersData.status && ordersData.result?.order) {
-                this.cachedOrders = ordersData.result.order;
+            // Agar cachedOrders allaqachon loadCachedCharts da yuklangan bo'lsa — qayta yuklamaymiz
+            if (!this.cachedOrders || this.cachedOrders.length === 0) {
+                const ordersRes = await fetch(`${baseUrl}/api/cache/orders/${this.currentPeriod}`);
+                const ordersData = await ordersRes.json();
+                if (ordersData.status && ordersData.result?.order) {
+                    this.cachedOrders = ordersData.result.order;
+                }
+            }
+            if (this.cachedOrders && this.cachedOrders.length > 0) {
                 await this.loadRealTables();
             }
         } catch (e) {
@@ -507,7 +523,7 @@ class SalesDoctorApp {
         updateEl('totalOrders', stats.orders || '0');
         updateEl('totalClientsOKB', stats.clientsOKB || '0');
         updateEl('totalClientsAKB', stats.clientsAKB || '0');
-        updateEl('totalProducts', stats.products || '0');
+        updateEl('stockValueUSD', stats.stockValueUSD || '$0');
         updateEl('totalProfitUZS', stats.profitUZS || '0');
         updateEl('totalProfitUSD', stats.profitUSD || '$0');
         updateEl('irodaAgentsSalesUZS', stats.irodaUZS || '0');
@@ -674,6 +690,7 @@ class SalesDoctorApp {
             let totalClients = 0;  // OKB - Umumiy Klient Baza
             let activeClients = new Set();  // AKB - Aktiv Klient Baza (davrda ishlagan)
             let totalProducts = 0;
+            let stockValueUSD = 0;
 
             // Tanlangan period bo'yicha filtrlash
             const { startDate, endDate } = dateRange;
@@ -752,7 +769,10 @@ class SalesDoctorApp {
             // OKB/AKB widgetlarni yangilash
             this.animateValue('totalClientsOKB', 0, totalClients, 1000, this.formatNumber.bind(this));
             this.animateValue('totalClientsAKB', 0, akbCount, 1000, this.formatNumber.bind(this));
-            this.animateValue('totalProducts', 0, totalProducts, 800, this.formatNumber.bind(this));
+            // Ostatka qiymatini hisoblash
+            stockValueUSD = await this.fetchStockValueUSD();
+            const stockEl = document.getElementById('stockValueUSD');
+            if (stockEl) stockEl.textContent = '$' + stockValueUSD.toLocaleString();
 
             // Iroda agentlari savdosini hisoblash (sana filtri bilan)
             const irodaSales = await this.fetchIrodaAgentsSales(filteredOrders);
@@ -900,7 +920,7 @@ class SalesDoctorApp {
                 orders: document.getElementById('totalOrders')?.textContent || '0',
                 clientsOKB: document.getElementById('totalClientsOKB')?.textContent || '0',
                 clientsAKB: document.getElementById('totalClientsAKB')?.textContent || '0',
-                products: document.getElementById('totalProducts')?.textContent || '0',
+                stockValueUSD: document.getElementById('stockValueUSD')?.textContent || '$0',
                 profitUZS: document.getElementById('totalProfitUZS')?.textContent || '0',
                 profitUSD: document.getElementById('totalProfitUSD')?.textContent || '$0',
                 irodaUZS: document.getElementById('irodaAgentsSalesUZS')?.textContent || '0',
@@ -1068,6 +1088,73 @@ class SalesDoctorApp {
         this.cache.products = total;
         console.log(`📦 Jami mahsulotlar: ${total}`);
         return total;
+    }
+
+    // Ostatka qiymatini dollar da hisoblash
+    async fetchStockValueUSD() {
+        try {
+            const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+            const CACHE_BASE_URL = isLocal
+                ? 'http://localhost:3000'
+                : 'https://sd-analitika-production.up.railway.app';
+
+            const [productsRes, purchasesRes, stockRes] = await Promise.all([
+                this.fetchWithTimeout(`${CACHE_BASE_URL}/api/cache/products`, 5000),
+                this.fetchWithTimeout(`${CACHE_BASE_URL}/api/cache/purchases`, 5000),
+                this.fetchWithTimeout(`${CACHE_BASE_URL}/api/cache/stock`, 5000)
+            ]);
+
+            const productsData = await productsRes.json();
+            const purchasesData = await purchasesRes.json();
+            const stockData = await stockRes.json();
+
+            const products = productsData.result?.product || [];
+            const purchases = purchasesData.result?.warehouse || [];
+            const warehouses = stockData.result?.warehouse || [];
+
+            const usdRate = this.getUsdRate();
+
+            // Stock map
+            const stockMap = {};
+            warehouses.forEach(warehouse => {
+                (warehouse.products || []).forEach(item => {
+                    const productId = item.SD_id;
+                    const quantity = parseFloat(item.quantity) || 0;
+                    stockMap[productId] = (stockMap[productId] || 0) + quantity;
+                });
+            });
+
+            // Tan narxlar map
+            const priceMap = {};
+            purchases.forEach(p => {
+                (p.detail || []).forEach(item => {
+                    const productId = item.SD_id;
+                    const price = parseFloat(item.price) || 0;
+                    if (price > 0) {
+                        priceMap[productId] = price;
+                    }
+                });
+            });
+
+            // Jami ostatka qiymatini hisoblash
+            let totalStockValueUSD = 0;
+            products.forEach(product => {
+                const productId = product.SD_id;
+                const ostatka = stockMap[productId] || 0;
+                const rawPrice = priceMap[productId] || 0;
+
+                if (ostatka > 0 && rawPrice > 0) {
+                    const costPriceUSD = rawPrice < 100 ? rawPrice : rawPrice / usdRate;
+                    totalStockValueUSD += costPriceUSD * ostatka;
+                }
+            });
+
+            console.log(`💰 Ostatka qiymati: $${Math.round(totalStockValueUSD).toLocaleString()}`);
+            return Math.round(totalStockValueUSD);
+        } catch (e) {
+            console.error('Ostatka qiymati xatosi:', e);
+            return 0;
+        }
     }
 
     // Barcha mijozlar sonini olish (pagination bilan)
@@ -1800,7 +1887,7 @@ class SalesDoctorApp {
         this.animateValue('totalSales', 0, stats.totalSales, 1500, this.formatCurrency.bind(this));
         this.animateValue('totalOrders', 0, stats.totalOrders, 1200, this.formatNumber.bind(this));
         this.animateValue('totalClients', 0, stats.totalClients, 1000, this.formatNumber.bind(this));
-        this.animateValue('totalProducts', 0, stats.totalProducts, 800, this.formatNumber.bind(this));
+        // totalProducts placeholder removed - stockValueUSD is loaded from cache
 
         // Update sparklines
         this.createSparkline('salesSparkline', this.demo.getSparklineData(), '#0071e3');
@@ -2224,6 +2311,7 @@ class SalesDoctorApp {
         document.getElementById('clientsSection')?.style.setProperty('display', 'none');
         document.getElementById('agentsSection')?.style.setProperty('display', 'none');
         document.getElementById('lowstockSection')?.style.setProperty('display', 'none');
+        document.getElementById('pricecheckSection')?.style.setProperty('display', 'none');
         document.getElementById('reportsSection')?.style.setProperty('display', 'none');
 
         // Update page title
@@ -2234,6 +2322,7 @@ class SalesDoctorApp {
             clients: { title: 'Mijozlar', subtitle: 'Mijozlar bazasi' },
             agents: { title: 'Agentlar', subtitle: 'Sotuvchilar ro\'yxati' },
             lowstock: { title: 'Buyurtma', subtitle: 'Kam qolgan mahsulotlar' },
+            pricecheck: { title: 'Narx tekshirish', subtitle: 'Prixod narxlarini taqqoslash' },
             reports: { title: 'Hisobotlar', subtitle: 'Tahlil va hisobotlar' }
         };
 
@@ -2265,6 +2354,10 @@ class SalesDoctorApp {
             case 'lowstock':
                 document.getElementById('lowstockSection')?.style.setProperty('display', 'block');
                 this.loadLowstockSection();
+                break;
+            case 'pricecheck':
+                document.getElementById('pricecheckSection')?.style.setProperty('display', 'block');
+                this.loadPriceCheckSection();
                 break;
             case 'reports':
                 document.getElementById('reportsSection')?.style.setProperty('display', 'block');
@@ -2962,7 +3055,286 @@ class SalesDoctorApp {
     }
 
     // ============================================
-    // DETAIL MODAL SYSTEM
+    // NARX TEKSHIRISH BO'LIMI
+    // ============================================
+
+    async loadPriceCheckSection() {
+        const container = document.getElementById('priceCheckContent');
+        if (!container) return;
+
+        container.innerHTML = '<div style="text-align: center; padding: 60px 20px; color: rgba(255,255,255,0.4);">⏳ Narxlar yuklanmoqda...</div>';
+
+        try {
+            const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+            const CACHE_BASE_URL = isLocal
+                ? 'http://localhost:3000'
+                : 'https://sd-analitika-production.up.railway.app';
+
+            const res = await this.fetchWithTimeout(`${CACHE_BASE_URL}/api/cache/priceCheck`, 10000);
+            const data = await res.json();
+
+            if (!data.status) {
+                container.innerHTML = `<div style="text-align: center; padding: 60px; color: #ff3b30;">❌ ${data.error || 'Xatolik'}</div>`;
+                return;
+            }
+
+            this.priceCheckData = data;
+            this.priceCheckAllDocs = data.documents || [];
+
+            // Hujjat filterni to'ldirish
+            const docFilter = document.getElementById('priceCheckDocFilter');
+            if (docFilter) {
+                // Yetkazuvchilar ro'yxatini olish
+                const shippers = [...new Set(this.priceCheckAllDocs.map(d => d.shipperName).filter(Boolean))].sort();
+                docFilter.innerHTML = '<option value="all">Barcha hujjatlar</option>';
+                shippers.forEach(s => {
+                    docFilter.innerHTML += `<option value="${s}">${s}</option>`;
+                });
+                docFilter.onchange = () => this.filterPriceCheck();
+            }
+
+            // Qidiruv
+            const searchInput = document.getElementById('priceCheckSearch');
+            if (searchInput) {
+                searchInput.oninput = () => this.filterPriceCheck();
+            }
+
+            this.renderPriceCheckDocuments(this.priceCheckAllDocs.slice(0, 20));
+
+        } catch (error) {
+            console.error('Price check yuklash xatosi:', error);
+            container.innerHTML = '<div style="text-align: center; padding: 60px; color: #ff3b30;">❌ Xatolik yuz berdi</div>';
+        }
+    }
+
+    filterPriceCheck() {
+        clearTimeout(this._priceCheckFilterTimeout);
+        this._priceCheckFilterTimeout = setTimeout(() => {
+            const searchVal = (document.getElementById('priceCheckSearch')?.value || '').toLowerCase().trim();
+            const shipperVal = document.getElementById('priceCheckDocFilter')?.value || 'all';
+
+            let docs = this.priceCheckAllDocs || [];
+
+            // Yetkazuvchi bo'yicha filtr
+            if (shipperVal !== 'all') {
+                docs = docs.filter(d => d.shipperName === shipperVal);
+            }
+
+            // Qidiruv — so'zma-so'z: "ariel 3" → "ariel" VA "3" ikkalasi ham bo'lishi kerak
+            if (searchVal) {
+                const words = searchVal.split(/\s+/).filter(Boolean);
+                const matchesAll = (text) => words.every(w => (text || '').toLowerCase().includes(w));
+
+                docs = docs.map(d => {
+                    // Agar shipper nomi yoki dok nomer mos kelsa — to'liq hujjatni ko'rsatish
+                    if (matchesAll(d.shipperName)) return d;
+                    if (matchesAll(d.warehouseName)) return d;
+                    if (matchesAll(d.id?.toString())) return d;
+
+                    // Mahsulot nomi bo'yicha — faqat mos mahsulotlarni filtrlash
+                    const matchedItems = (d.items || []).filter(item => matchesAll(item.name));
+                    if (matchedItems.length > 0) {
+                        return { ...d, items: matchedItems };
+                    }
+                    return null;
+                }).filter(Boolean);
+            }
+
+            this.renderPriceCheckDocuments(docs.slice(0, 30));
+        }, 300);
+    }
+
+    renderPriceCheckDocuments(documents) {
+        const container = document.getElementById('priceCheckContent');
+        if (!container) return;
+
+        if (!documents || documents.length === 0) {
+            container.innerHTML = '<div style="text-align: center; padding: 60px; color: rgba(255,255,255,0.4);">Hujjat topilmadi</div>';
+            return;
+        }
+
+        const priceTypes = this.priceCheckData?.priceTypes || {};
+
+        // Barcha o'ziga xos narx turlari ro'yxati (headerda ishlatamiz)
+        const allPriceTypeIds = new Set();
+        documents.forEach(doc => {
+            (doc.items || []).forEach(item => {
+                Object.keys(item.otherPrices || {}).forEach(ptId => allPriceTypeIds.add(ptId));
+            });
+        });
+        const priceTypeList = [...allPriceTypeIds].map(ptId => ({
+            id: ptId,
+            name: priceTypes[ptId]?.name || ptId,
+            currency: priceTypes[ptId]?.currency || 'UZS'
+        }));
+
+        let html = '';
+
+        documents.forEach(doc => {
+            const dateStr = doc.date ? new Date(doc.date).toLocaleDateString('uz-UZ', {
+                day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit'
+            }) : '';
+
+            const currencySymbol = doc.priceType?.currency === 'USD' ? '$' : "so'm";
+            const totalAmount = (doc.items || []).reduce((s, i) => s + (i.amount || 0), 0);
+
+            html += `
+            <div style="margin-bottom: 20px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; overflow: hidden;">
+                <!-- Document Header -->
+                <div style="padding: 14px 18px; display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.02); border-bottom: 1px solid rgba(255,255,255,0.06); cursor: pointer;"
+                     onclick="this.parentElement.querySelector('.pc-doc-body').style.display = this.parentElement.querySelector('.pc-doc-body').style.display === 'none' ? 'block' : 'none'; this.querySelector('.pc-arrow').textContent = this.parentElement.querySelector('.pc-doc-body').style.display === 'none' ? '▶' : '▼';">
+                    <div style="display: flex; align-items: center; gap: 14px;">
+                        <span class="pc-arrow" style="color: rgba(255,255,255,0.3); font-size: 11px;">▼</span>
+                        <div>
+                            <div style="font-weight: 600; color: #fff; font-size: 14px;">📄 ${doc.shipperName || 'Noma\'lum'} <span style="color: rgba(255,255,255,0.25); font-weight: 400; font-size: 12px; margin-left: 6px;">#${doc.id || ''}</span></div>
+                            <div style="font-size: 12px; color: rgba(255,255,255,0.4); margin-top: 2px;">
+                                ${dateStr} · ${doc.priceType?.name || ''} · ${(doc.items || []).length} ta mahsulot
+                            </div>
+                        </div>
+                    </div>
+                    <div style="text-align: right;">
+                        <div style="font-weight: 700; color: #10b981; font-size: 15px;">
+                            ${doc.priceType?.currency === 'USD'
+                    ? '$' + totalAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                    : totalAmount.toLocaleString() + " so'm"
+                }
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Document Body -->
+                <div class="pc-doc-body" style="display: block;">
+                    <div style="overflow-x: auto;">
+                        <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
+                            <thead>
+                                <tr style="background: rgba(255,255,255,0.04);">
+                                    <th style="padding: 10px 14px; text-align: left; color: rgba(255,255,255,0.5); font-weight: 500; border-bottom: 1px solid rgba(255,255,255,0.06); white-space: nowrap;">#</th>
+                                    <th style="padding: 10px 14px; text-align: left; color: rgba(255,255,255,0.5); font-weight: 500; border-bottom: 1px solid rgba(255,255,255,0.06); min-width: 200px;">Mahsulot</th>
+                                    <th style="padding: 10px 14px; text-align: center; color: rgba(255,255,255,0.5); font-weight: 500; border-bottom: 1px solid rgba(255,255,255,0.06); white-space: nowrap;">Miqdor</th>
+                                    <th style="padding: 10px 14px; text-align: right; color: #10b981; font-weight: 600; border-bottom: 1px solid rgba(255,255,255,0.06); white-space: nowrap;">
+                                        Kirim narx (${currencySymbol})
+                                    </th>
+                                    <th style="padding: 10px 14px; text-align: right; color: #f59e0b; font-weight: 600; border-bottom: 1px solid rgba(255,255,255,0.06); white-space: nowrap;">
+                                        Jami
+                                    </th>
+                                    ${priceTypeList.map(pt => `
+                                        <th style="padding: 10px 14px; text-align: right; color: #60a5fa; font-weight: 500; border-bottom: 1px solid rgba(255,255,255,0.06); white-space: nowrap;">
+                                            ${pt.name}
+                                        </th>
+                                    `).join('')}
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${(doc.items || []).map((item, idx) => {
+                    const isCurrency = item.currency === 'USD';
+                    const priceFormatted = isCurrency
+                        ? '$' + item.price.toFixed(3)
+                        : item.price.toLocaleString() + " so'm";
+                    const amountFormatted = isCurrency
+                        ? '$' + item.amount.toFixed(2)
+                        : item.amount.toLocaleString() + " so'm";
+
+                    return `
+                                    <tr style="border-bottom: 1px solid rgba(255,255,255,0.03); transition: background 0.2s;"
+                                        onmouseenter="this.style.background='rgba(255,255,255,0.04)'"
+                                        onmouseleave="this.style.background='transparent'">
+                                        <td style="padding: 10px 14px; color: rgba(255,255,255,0.3);">${idx + 1}</td>
+                                        <td style="padding: 10px 14px; color: #fff; font-weight: 500;">${item.name}</td>
+                                        <td style="padding: 10px 14px; text-align: center; color: rgba(255,255,255,0.7);">${item.quantity}</td>
+                                        <td style="padding: 10px 14px; text-align: right; color: #10b981; font-weight: 600;">${priceFormatted}</td>
+                                        <td style="padding: 10px 14px; text-align: right; color: #f59e0b; font-weight: 500;">${amountFormatted}</td>
+                                        ${priceTypeList.map(pt => {
+                        const op = (item.otherPrices || {})[pt.id];
+                        if (!op) return '<td style="padding: 10px 14px; text-align: right; color: rgba(255,255,255,0.15);">—</td>';
+                        const opFormatted = op.currency === 'USD'
+                            ? '$' + op.price.toFixed(3)
+                            : op.price.toLocaleString() + " so'm";
+
+                        // Foiz ustama hisoblash (kurs orqali konvertatsiya)
+                        let pctBadge = '';
+                        if (item.price > 0 && op.price > 0) {
+                            const usdRate = this.getUsdRate();
+                            // Narxlarni bir xil valyutaga keltirish (USD ga)
+                            let kirimUsd = item.price;
+                            let otherUsd = op.price;
+                            if (item.currency === 'UZS') kirimUsd = item.price / usdRate;
+                            if (op.currency === 'UZS') otherUsd = op.price / usdRate;
+
+                            const pct = ((otherUsd - kirimUsd) / kirimUsd * 100);
+                            if (Math.abs(pct) < 0.1) {
+                                pctBadge = `<span style="display:inline-flex;align-items:center;gap:2px;margin-left:5px;padding:1px 5px;border-radius:4px;font-size:10px;font-weight:600;background:rgba(148,163,184,0.15);color:#94a3b8;" title="Prixod narx bilan teng">＝</span>`;
+                            } else if (pct > 0) {
+                                pctBadge = `<span style="display:inline-flex;align-items:center;gap:1px;margin-left:5px;padding:1px 5px;border-radius:4px;font-size:10px;font-weight:600;background:rgba(16,185,129,0.12);color:#10b981;" title="Prixoddan ${pct.toFixed(1)}% qimmat">↑${pct.toFixed(1)}%</span>`;
+                            } else {
+                                pctBadge = `<span style="display:inline-flex;align-items:center;gap:1px;margin-left:5px;padding:1px 5px;border-radius:4px;font-size:10px;font-weight:600;background:rgba(239,68,68,0.12);color:#ef4444;" title="Prixoddan ${Math.abs(pct).toFixed(1)}% arzon">↓${Math.abs(pct).toFixed(1)}%</span>`;
+                            }
+                        }
+
+                        return `<td style="padding: 10px 14px; text-align: right; color: #60a5fa; white-space: nowrap;">${opFormatted}${pctBadge}</td>`;
+                    }).join('')}
+                                    </tr>`;
+                }).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>`;
+        });
+
+        // Summary
+        const totalDocs = this.priceCheckAllDocs?.length || 0;
+        const showingDocs = documents.length;
+        const summaryText = showingDocs < totalDocs
+            ? `${showingDocs} / ${totalDocs} hujjat ko'rsatilmoqda`
+            : `Jami ${totalDocs} ta hujjat`;
+
+        container.innerHTML = `
+            <div style="margin-bottom: 12px; padding: 10px 16px; background: rgba(96,165,250,0.08); border-radius: 8px; color: rgba(255,255,255,0.5); font-size: 13px; display: flex; justify-content: space-between; align-items: center;">
+                <span>📋 ${summaryText}</span>
+                <div style="display: flex; align-items: center; gap: 12px;">
+                    <button onclick="document.querySelectorAll('.pc-doc-body').forEach(el => el.style.display = 'none'); document.querySelectorAll('.pc-arrow').forEach(el => el.textContent = '▶');" style="background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); color: rgba(255,255,255,0.5); padding: 4px 12px; border-radius: 6px; cursor: pointer; font-size: 12px; transition: all 0.2s;" onmouseenter="this.style.background='rgba(255,255,255,0.1)'" onmouseleave="this.style.background='rgba(255,255,255,0.06)'">⬆ Hammasini yopish</button>
+                    <span>${(this.priceCheckData?.totalProducts || 0).toLocaleString()} ta mahsulot</span>
+                </div>
+            </div>
+            ${html}
+            ${showingDocs < totalDocs ? `
+                <div style="text-align: center; padding: 20px;">
+                    <button onclick="window.app?.showMorePriceCheckDocs()" style="
+                        background: rgba(96,165,250,0.15);
+                        border: 1px solid rgba(96,165,250,0.3);
+                        color: #60a5fa;
+                        padding: 10px 28px;
+                        border-radius: 8px;
+                        cursor: pointer;
+                        font-size: 14px;
+                    ">Ko'proq ko'rsatish (${totalDocs - showingDocs} ta qoldi)</button>
+                </div>
+            ` : ''}
+        `;
+    }
+
+    showMorePriceCheckDocs() {
+        const searchVal = (document.getElementById('priceCheckSearch')?.value || '').toLowerCase().trim();
+        const shipperVal = document.getElementById('priceCheckDocFilter')?.value || 'all';
+
+        let docs = this.priceCheckAllDocs || [];
+
+        if (shipperVal !== 'all') {
+            docs = docs.filter(d => d.shipperName === shipperVal);
+        }
+        if (searchVal) {
+            docs = docs.filter(d => {
+                if (d.shipperName?.toLowerCase().includes(searchVal)) return true;
+                if (d.warehouseName?.toLowerCase().includes(searchVal)) return true;
+                return (d.items || []).some(item => item.name?.toLowerCase().includes(searchVal));
+            });
+        }
+
+        // Ko'proq ko'rsatish
+        this.renderPriceCheckDocuments(docs);
+    }
+
+
     // ============================================
 
     setupStatCardClicks() {
@@ -2979,7 +3351,7 @@ class SalesDoctorApp {
         });
     }
 
-    openDetailModal(label, index) {
+    async openDetailModal(label, index) {
         const modal = document.getElementById('detailModal');
         const title = document.getElementById('modalTitle');
         const body = document.getElementById('modalBody');
@@ -2988,9 +3360,12 @@ class SalesDoctorApp {
 
         // Map label to content generator
         let content = '';
+        console.log('openDetailModal label:', JSON.stringify(label), 'cachedOrders:', this.cachedOrders?.length);
         if (label.includes('Jami Sotuvlar') || label.includes('Sotuvlar')) {
             title.textContent = 'Sotuvlar bo\'yicha batafsil';
-            content = this.renderSalesDetail();
+            body.innerHTML = '<div style="text-align:center;padding:40px;color:#6b7280;">⏳ Yuklanmoqda...</div>';
+            modal.classList.add('active');
+            content = await this.renderSalesDetail();
         } else if (label.includes('Buyurtmalar')) {
             title.textContent = 'Buyurtmalar ro\'yxati';
             content = this.renderOrdersDetail();
@@ -4178,8 +4553,31 @@ class SalesDoctorApp {
             const totalDollarAbs = Math.abs(totalDollar);
             const overduePercent = totalDollarAbs > 0 ? Math.round((allOverdueDollar / totalDollarAbs) * 100) : 0;
 
-            // Agent table ga srok ustun qo'shish
-            if (currency === 'dollar') {
+            // Agent table ga srok ustun qo'shish — currency bo'yicha
+            if (currency === 'som') {
+                tableHeaders = `
+                    <th>#</th>
+                    <th>Agent ismi</th>
+                    <th>Mijozlar</th>
+                    <th>So'm</th>
+                    <th>🔴 Srok o'tgan</th>
+                `;
+                tableRows = sortedAgents.map((a, i) => {
+                    const agentOverdue = (a.clients || []).filter(c => c.isOverdue);
+                    const agentOverdueSom = agentOverdue.reduce((s, c) => s + Math.abs(c.somDebt || 0), 0);
+                    return `
+                    <tr style="cursor: pointer;" onclick="window.app?.showAgentClients('${a.id}')">
+                        <td>${i + 1}</td>
+                        <td>${a.name}</td>
+                        <td>${a.clientCount} ta</td>
+                        <td style="color: #ef4444;">${this.formatCurrency(a.totalSom)}</td>
+                        <td style="text-align:center;">${agentOverdue.length > 0
+                            ? `<span style="color:#ef4444;font-weight:700;">${this.formatCurrency(agentOverdueSom)}</span> <span style="color:#fca5a5;font-size:11px;">(${agentOverdue.length})</span>`
+                            : '<span style="color:#10b981;">✓</span>'
+                        }</td>
+                    </tr>
+                `}).join('');
+            } else if (currency === 'dollar') {
                 tableHeaders = `
                     <th>#</th>
                     <th>Agent ismi</th>
@@ -4230,6 +4628,30 @@ class SalesDoctorApp {
                 `}).join('');
             }
 
+            // Valyutaga qarab qiymatlar
+            let mainTotal, mainOverdue, mainOnTime, mainPrefix;
+            if (currency === 'som') {
+                const totalSomAbs = Math.abs(totalSom);
+                mainTotal = this.formatCurrency(totalSomAbs);
+                mainOverdue = this.formatCurrency(allOverdueSom);
+                mainOnTime = this.formatCurrency(totalSomAbs - allOverdueSom);
+                mainPrefix = '';
+                const somOverduePercent = totalSomAbs > 0 ? Math.round((allOverdueSom / totalSomAbs) * 100) : 0;
+                var displayPercent = somOverduePercent;
+            } else if (currency === 'dollar') {
+                mainTotal = `$${totalDollarAbs.toLocaleString()}`;
+                mainOverdue = `$${allOverdueDollar.toLocaleString()}`;
+                mainOnTime = `$${(totalDollarAbs - allOverdueDollar).toLocaleString()}`;
+                mainPrefix = '';
+                var displayPercent = overduePercent;
+            } else {
+                mainTotal = `$${totalDollarAbs.toLocaleString()}`;
+                mainOverdue = `$${allOverdueDollar.toLocaleString()}`;
+                mainOnTime = `$${(totalDollarAbs - allOverdueDollar).toLocaleString()}`;
+                mainPrefix = '';
+                var displayPercent = overduePercent;
+            }
+
             body.innerHTML = `
                 <div style="
                     display: grid;
@@ -4239,13 +4661,13 @@ class SalesDoctorApp {
                 ">
                     <div style="background: linear-gradient(135deg, rgba(59,130,246,0.15), rgba(59,130,246,0.05)); border: 1px solid rgba(59,130,246,0.25); border-radius: 10px; padding: 10px; text-align: center;">
                         <div style="color: #93c5fd; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">Jami qarz</div>
-                        <div style="color: #60a5fa; font-size: 16px; font-weight: 800;">$${totalDollarAbs.toLocaleString()}</div>
+                        <div style="color: #60a5fa; font-size: 16px; font-weight: 800;">${mainTotal}</div>
                         <div style="color: #6b7280; font-size: 10px; margin-top: 2px;">${allTotalClients} ta mijoz</div>
                     </div>
                     <div style="background: linear-gradient(135deg, rgba(239,68,68,0.2), rgba(239,68,68,0.05)); border: 1px solid rgba(239,68,68,0.35); border-radius: 10px; padding: 10px; text-align: center;">
                         <div style="color: #fca5a5; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">🔴 Srok o'tgan</div>
-                        <div style="color: #ef4444; font-size: 16px; font-weight: 800;">$${allOverdueDollar.toLocaleString()}</div>
-                        <div style="color: #ef4444; font-size: 10px; margin-top: 2px; font-weight: 600;">${overduePercent}% — ${allOverdueClients} mijoz</div>
+                        <div style="color: #ef4444; font-size: 16px; font-weight: 800;">${mainOverdue}</div>
+                        <div style="color: #ef4444; font-size: 10px; margin-top: 2px; font-weight: 600;">${displayPercent}% — ${allOverdueClients} mijoz</div>
                     </div>
                     <div style="background: linear-gradient(135deg, rgba(245,158,11,0.15), rgba(245,158,11,0.05)); border: 1px solid rgba(245,158,11,0.3); border-radius: 10px; padding: 10px; text-align: center;">
                         <div style="color: #fcd34d; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">⚠️ Max kechikish</div>
@@ -4254,12 +4676,12 @@ class SalesDoctorApp {
                     </div>
                     <div style="background: linear-gradient(135deg, rgba(16,185,129,0.15), rgba(16,185,129,0.05)); border: 1px solid rgba(16,185,129,0.25); border-radius: 10px; padding: 10px; text-align: center;">
                         <div style="color: #6ee7b7; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">✅ Muddatida</div>
-                        <div style="color: #10b981; font-size: 16px; font-weight: 800;">$${(totalDollarAbs - allOverdueDollar).toLocaleString()}</div>
-                        <div style="color: #10b981; font-size: 10px; margin-top: 2px;">${100 - overduePercent}% — ${allTotalClients - allOverdueClients} mijoz</div>
+                        <div style="color: #10b981; font-size: 16px; font-weight: 800;">${mainOnTime}</div>
+                        <div style="color: #10b981; font-size: 10px; margin-top: 2px;">${100 - displayPercent}% — ${allTotalClients - allOverdueClients} mijoz</div>
                     </div>
                 </div>
                 <div style="height:4px;background:rgba(16,185,129,0.3);border-radius:2px;margin-bottom:10px;overflow:hidden;">
-                    <div style="height:100%;width:${overduePercent}%;background:linear-gradient(90deg,#ef4444,#f97316);border-radius:2px;"></div>
+                    <div style="height:100%;width:${displayPercent}%;background:linear-gradient(90deg,#ef4444,#f97316);border-radius:2px;"></div>
                 </div>
                 <div class="data-table-wrapper" style="max-height: 50vh; overflow-y: auto;">
                     <table class="data-table">
@@ -4320,25 +4742,41 @@ class SalesDoctorApp {
             }
         };
 
-        // Srok o'tgan statistikani hisoblash
+        // Srok o'tgan statistikani hisoblash — valyutaga qarab
         const overdueClients = sortedClients.filter(c => c.isOverdue);
         const overdueDollarSum = overdueClients.reduce((s, c) => s + Math.abs(c.balanceDollar || 0), 0);
         const overdueSomSum = overdueClients.reduce((s, c) => s + Math.abs(c.balanceTotal || 0), 0);
-        const totalDollarAbs = Math.abs(agent.totalDollar || 0);
-        const overduePercent = totalDollarAbs > 0 ? Math.round((overdueDollarSum / totalDollarAbs) * 100) : 0;
         const maxOverdueDays = overdueClients.length > 0 ? Math.max(...overdueClients.map(c => c.overdueDays || 0)) : 0;
+
+        // Valyutaga qarab karta qiymatlari
+        const debtCurrency = this.currentDebtCurrency || 'all';
+        let cardTotal, cardOverdue, cardOnTime, cardPercent;
+
+        if (debtCurrency === 'som') {
+            const totalSomAbs = Math.abs(agent.totalSom || 0);
+            cardTotal = this.formatCurrency(totalSomAbs);
+            cardOverdue = this.formatCurrency(overdueSomSum);
+            cardOnTime = this.formatCurrency(totalSomAbs - overdueSomSum);
+            cardPercent = totalSomAbs > 0 ? Math.round((overdueSomSum / totalSomAbs) * 100) : 0;
+        } else {
+            const totalDollarAbs = Math.abs(agent.totalDollar || 0);
+            cardTotal = `$${totalDollarAbs.toLocaleString()}`;
+            cardOverdue = `$${overdueDollarSum.toLocaleString()}`;
+            cardOnTime = `$${(totalDollarAbs - overdueDollarSum).toLocaleString()}`;
+            cardPercent = totalDollarAbs > 0 ? Math.round((overdueDollarSum / totalDollarAbs) * 100) : 0;
+        }
 
         body.innerHTML = `
             <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:10px;">
                 <div style="background:linear-gradient(135deg,rgba(59,130,246,0.15),rgba(59,130,246,0.05));border:1px solid rgba(59,130,246,0.25);border-radius:10px;padding:10px;text-align:center;">
                     <div style="color:#93c5fd;font-size:10px;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Jami qarz</div>
-                    <div style="color:#60a5fa;font-size:16px;font-weight:800;">$${totalDollarAbs.toLocaleString()}</div>
+                    <div style="color:#60a5fa;font-size:16px;font-weight:800;">${cardTotal}</div>
                     <div style="color:#6b7280;font-size:10px;margin-top:2px;">${sortedClients.length} ta mijoz</div>
                 </div>
                 <div style="background:linear-gradient(135deg,rgba(239,68,68,0.2),rgba(239,68,68,0.05));border:1px solid rgba(239,68,68,0.35);border-radius:10px;padding:10px;text-align:center;">
                     <div style="color:#fca5a5;font-size:10px;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">🔴 Srok o'tgan</div>
-                    <div style="color:#ef4444;font-size:16px;font-weight:800;">$${overdueDollarSum.toLocaleString()}</div>
-                    <div style="color:#ef4444;font-size:10px;margin-top:2px;font-weight:600;">${overduePercent}% — ${overdueClients.length} mijoz</div>
+                    <div style="color:#ef4444;font-size:16px;font-weight:800;">${cardOverdue}</div>
+                    <div style="color:#ef4444;font-size:10px;margin-top:2px;font-weight:600;">${cardPercent}% — ${overdueClients.length} mijoz</div>
                 </div>
                 <div style="background:linear-gradient(135deg,rgba(245,158,11,0.15),rgba(245,158,11,0.05));border:1px solid rgba(245,158,11,0.3);border-radius:10px;padding:10px;text-align:center;">
                     <div style="color:#fcd34d;font-size:10px;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">⚠️ Max kechikish</div>
@@ -4347,23 +4785,36 @@ class SalesDoctorApp {
                 </div>
                 <div style="background:linear-gradient(135deg,rgba(16,185,129,0.15),rgba(16,185,129,0.05));border:1px solid rgba(16,185,129,0.25);border-radius:10px;padding:10px;text-align:center;">
                     <div style="color:#6ee7b7;font-size:10px;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">✅ Muddatida</div>
-                    <div style="color:#10b981;font-size:16px;font-weight:800;">$${(totalDollarAbs - overdueDollarSum).toLocaleString()}</div>
-                    <div style="color:#10b981;font-size:10px;margin-top:2px;">${100 - overduePercent}% — ${sortedClients.length - overdueClients.length} mijoz</div>
+                    <div style="color:#10b981;font-size:16px;font-weight:800;">${cardOnTime}</div>
+                    <div style="color:#10b981;font-size:10px;margin-top:2px;">${100 - cardPercent}% — ${sortedClients.length - overdueClients.length} mijoz</div>
                 </div>
             </div>
             <div style="height:4px;background:rgba(16,185,129,0.3);border-radius:2px;margin-bottom:8px;overflow:hidden;">
-                <div style="height:100%;width:${overduePercent}%;background:linear-gradient(90deg,#ef4444,#f97316);border-radius:2px;"></div>
+                <div style="height:100%;width:${cardPercent}%;background:linear-gradient(90deg,#ef4444,#f97316);border-radius:2px;"></div>
             </div>
-            <button onclick="window.app?.openDebtModal()" style="
-                background: rgba(0, 113, 227, 0.2);
-                border: 1px solid rgba(0, 113, 227, 0.5);
-                color: #0071e3;
-                padding: 6px 14px;
-                border-radius: 8px;
-                cursor: pointer;
-                margin-bottom: 10px;
-                font-size: 13px;
-            ">← Orqaga</button>
+            <div style="display:flex;gap:8px;margin-bottom:10px;align-items:center;">
+                <button onclick="window.app?.openDebtModal('${debtCurrency}')" style="
+                    background: rgba(0, 113, 227, 0.2);
+                    border: 1px solid rgba(0, 113, 227, 0.5);
+                    color: #0071e3;
+                    padding: 6px 14px;
+                    border-radius: 8px;
+                    cursor: pointer;
+                    font-size: 13px;
+                ">← Orqaga</button>
+                <button onclick="window.app?.downloadAgentPDF('${agent.name}')" style="
+                    background: rgba(16, 185, 129, 0.2);
+                    border: 1px solid rgba(16, 185, 129, 0.5);
+                    color: #10b981;
+                    padding: 6px 14px;
+                    border-radius: 8px;
+                    cursor: pointer;
+                    font-size: 13px;
+                    display: flex;
+                    align-items: center;
+                    gap: 6px;
+                " id="pdfDownloadBtn">📄 PDF yuklab olish</button>
+            </div>
             <div class="data-table-wrapper" style="max-height: 50vh; overflow-y: auto;">
                 <table class="data-table">
                     <thead>
@@ -4395,48 +4846,234 @@ class SalesDoctorApp {
         `;
     }
 
+    // PDF uchun canvas tayyorlash (umumiy funksiya)
+    async _capturePDFCanvas(agentName) {
+        const modalBody = document.getElementById('modalBody');
+        const modalTitle = document.getElementById('modalTitle');
+        if (!modalBody) return null;
+        const modalContent = modalBody.closest('.modal-content');
+        const wrapper = modalBody.querySelector('.data-table-wrapper');
+        // Original stillarni saqlash
+        const saved = {};
+        saved.bodyOY = modalBody.style.overflowY;
+        saved.bodyOX = modalBody.style.overflowX;
+        saved.bodyMH = modalBody.style.maxHeight;
+        saved.bodyH = modalBody.style.height;
+        if (modalContent) { saved.mcO = modalContent.style.overflow; saved.mcMH = modalContent.style.maxHeight; saved.mcH = modalContent.style.height; }
+        if (wrapper) { saved.wrMH = wrapper.style.maxHeight; saved.wrOY = wrapper.style.overflowY; }
+        // Scroll cheklovlarni olib tashlash
+        modalBody.style.overflowY = 'visible';
+        modalBody.style.overflowX = 'visible';
+        modalBody.style.maxHeight = 'none';
+        modalBody.style.height = 'auto';
+        if (modalContent) { modalContent.style.overflow = 'visible'; modalContent.style.maxHeight = 'none'; modalContent.style.height = 'auto'; }
+        if (wrapper) { wrapper.style.maxHeight = 'none'; wrapper.style.overflowY = 'visible'; }
+        // Tugmalarni yashirish
+        const buttons = modalBody.querySelectorAll('button');
+        buttons.forEach(b => b.style.display = 'none');
+        // html2canvas bilan to'liq capture
+        const canvas = await html2canvas(modalBody, {
+            backgroundColor: '#0d0f14', scale: 2, logging: false,
+            useCORS: true, allowTaint: true,
+            scrollX: 0, scrollY: 0,
+            windowWidth: modalBody.scrollWidth,
+            windowHeight: modalBody.scrollHeight,
+        });
+        // Stillarni qaytarish
+        buttons.forEach(b => b.style.display = '');
+        modalBody.style.overflowY = saved.bodyOY;
+        modalBody.style.overflowX = saved.bodyOX;
+        modalBody.style.maxHeight = saved.bodyMH;
+        modalBody.style.height = saved.bodyH;
+        if (modalContent) { modalContent.style.overflow = saved.mcO; modalContent.style.maxHeight = saved.mcMH; modalContent.style.height = saved.mcH; }
+        if (wrapper) { wrapper.style.maxHeight = saved.wrMH; wrapper.style.overflowY = saved.wrOY; }
+        return { canvas, title: modalTitle?.textContent || agentName };
+    }
+
+    // Canvas dan PDF yaratish
+    _createPDFFromCanvas(canvas, title) {
+        const { jsPDF } = window.jspdf;
+        const imgW = canvas.width, imgH = canvas.height;
+        const pdfW = 297, pdfH = 210, m = 10;
+        const cW = pdfW - m * 2, hdrH = 15;
+        const startY = m + hdrH, avH = pdfH - startY - m;
+        const ratio = cW / imgW;
+        const totalP = Math.ceil((imgH * ratio) / avH);
+        const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+        for (let p = 0; p < totalP; p++) {
+            if (p > 0) pdf.addPage();
+            pdf.setFillColor(13, 15, 20);
+            pdf.rect(0, 0, pdfW, pdfH, 'F');
+            pdf.setFont('helvetica', 'bold');
+            pdf.setFontSize(14);
+            pdf.setTextColor(255, 255, 255);
+            pdf.text(title, m, m + 8);
+            pdf.setFontSize(9);
+            pdf.setTextColor(150, 150, 150);
+            const now = new Date();
+            pdf.text(now.toLocaleDateString('uz-UZ') + ' ' + now.toLocaleTimeString('uz-UZ'), pdfW - m, m + 8, { align: 'right' });
+            if (totalP > 1) pdf.text((p + 1) + '/' + totalP, pdfW - m, pdfH - 5, { align: 'right' });
+            const srcY = p * (avH / ratio);
+            const srcH = Math.min(avH / ratio, imgH - srcY);
+            const pc = document.createElement('canvas');
+            pc.width = imgW; pc.height = srcH;
+            pc.getContext('2d').drawImage(canvas, 0, srcY, imgW, srcH, 0, 0, imgW, srcH);
+            pdf.addImage(pc.toDataURL('image/png'), 'PNG', m, startY, cW, srcH * ratio);
+        }
+        return pdf;
+    }
+
+    // PDF yuklab olish
+    async downloadAgentPDF(agentName) {
+        const btn = document.getElementById('pdfDownloadBtn');
+        const origHTML = btn ? btn.innerHTML : '';
+        try {
+            if (btn) { btn.innerHTML = '⏳ Tayyorlanmoqda...'; btn.style.opacity = '0.6'; btn.style.pointerEvents = 'none'; }
+            const r = await this._capturePDFCanvas(agentName);
+            if (!r) return;
+            const pdf = this._createPDFFromCanvas(r.canvas, r.title);
+            const safe = agentName.replace(/[^a-zA-Z0-9\u0400-\u04FF\s]/g, '').replace(/\s+/g, '_');
+            pdf.save(safe + '_qarz_' + new Date().toISOString().slice(0, 10) + '.pdf');
+            if (btn) { btn.innerHTML = '✅ Yuklandi!'; btn.style.opacity = '1'; setTimeout(function () { btn.innerHTML = origHTML; btn.style.pointerEvents = ''; }, 2000); }
+        } catch (e) {
+            console.error('PDF xatolik:', e);
+            if (btn) { btn.innerHTML = '❌ Xatolik'; btn.style.opacity = '1'; setTimeout(function () { btn.innerHTML = origHTML; btn.style.pointerEvents = ''; }, 2000); }
+        }
+    }
+
 
     // Sotuvlar batafsil
-    renderSalesDetail() {
-        const orders = this.cachedOrders || [];
-        const { startDate, endDate } = this.getDateRange(this.currentPeriod);
+    async renderSalesDetail() {
+        try {
+            let orders = this.cachedOrders || [];
 
-        const filteredOrders = orders.filter(order => {
-            const orderDate = (order.dateCreate || order.dateDocument || '').split('T')[0].split(' ')[0];
-            if (startDate && endDate) {
-                return orderDate >= startDate && orderDate <= endDate;
+            // Agar cachedOrders bo'sh bo'lsa — cache serverdan yuklash
+            if (orders.length === 0) {
+                try {
+                    const base = this.getCacheBaseUrl();
+                    const period = this.currentPeriod || 'month';
+                    const res = await this.fetchWithTimeout(`${base}/api/cache/orders/${period}`, 8000);
+                    const data = await res.json();
+                    if (data.status && data.result?.order) {
+                        orders = data.result.order;
+                        this.cachedOrders = orders;
+                        console.log(`✅ ${orders.length} ta buyurtma cache serverdan yuklandi`);
+                    }
+                } catch (e) {
+                    console.error('Cache serverdan yuklash xatosi:', e);
+                }
             }
-            return true;
-        });
 
-        // Mijozlar bo'yicha guruhlash
-        const clientSales = {};
-        filteredOrders.forEach(order => {
-            const clientName = order.client?.clientName || order.client?.clientLegalName || 'Noma\'lum';
-            const clientId = order.client?.SD_id || 'unknown';
-            const sum = parseFloat(order.totalSumma) || 0;
+            console.log('renderSalesDetail: orders count =', orders.length);
+            const { startDate, endDate } = this.getDateRange(this.currentPeriod);
 
-            if (!clientSales[clientId]) {
-                clientSales[clientId] = { name: clientName, total: 0, count: 0 };
+            // Agent nomlarini yuklash (agar hali yuklanmagan bo'lsa)
+            if (!this.cachedAgentNames) {
+                try {
+                    const agentResp = await this.fetchWithTimeout(`${this.getCacheBaseUrl()}/api/cache/agents`, 3000);
+                    const agentData = await agentResp.json();
+                    if (agentData.status && agentData.result?.agent) {
+                        this.cachedAgentNames = {};
+                        agentData.result.agent.forEach(a => {
+                            if (a.SD_id && a.name) this.cachedAgentNames[a.SD_id] = a.name;
+                        });
+                    }
+                } catch (e) {
+                    console.error('Agent nomlarini yuklash xatosi:', e);
+                    this.cachedAgentNames = {};
+                }
             }
-            clientSales[clientId].total += sum;
-            clientSales[clientId].count++;
-        });
 
-        // Saralash (ko'pdan kamga)
-        const sorted = Object.values(clientSales).sort((a, b) => b.total - a.total).slice(0, 50);
-        const totalSum = sorted.reduce((sum, c) => sum + c.total, 0);
+            const filteredOrders = orders.filter(order => {
+                const orderDate = (order.dateCreate || order.dateDocument || '').split('T')[0].split(' ')[0];
+                if (startDate && endDate) {
+                    return orderDate >= startDate && orderDate <= endDate;
+                }
+                return true;
+            });
 
-        return `
-            <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:10px;">
+            // Dollar narx turlarini aniqlash (statik + priceType nomlari bo'yicha)
+            const dollarPriceTypeIds = new Set(['d0_7', 'd0_8', 'd0_11', 'd0_9', 'd0_6']);
+            // priceTypes serverdan yuklanib bo'lgan bo'lsa, $ yoki dollar nomli narx turlarini ham qo'shish
+            if (this._priceTypeMap) {
+                Object.entries(this._priceTypeMap).forEach(([id, pt]) => {
+                    if (pt.currency === 'USD' || (pt.name && pt.name.includes('$'))) {
+                        dollarPriceTypeIds.add(id);
+                    }
+                });
+            }
+
+
+
+
+            const isUsdOrder = (order) => {
+                const ptId = order.priceType?.SD_id;
+                const payId = order.paymentType?.SD_id;
+                return payId === 'd0_4' || dollarPriceTypeIds.has(ptId);
+            };
+
+            // Agentlar bo'yicha guruhlash
+            const agentSales = {};
+            let grandTotalUZS = 0, grandTotalUSD = 0;
+            filteredOrders.forEach(order => {
+                const agentId = order.agent?.SD_id || 'unknown';
+                const agentName = this.cachedAgentNames?.[agentId] || order.agent?.name || `Agent ${agentId.replace('d0_', '#')}`;
+                const clientName = order.client?.clientName || order.client?.clientLegalName || 'Noma\'lum';
+                const clientId = order.client?.SD_id || 'unknown';
+                const sum = parseFloat(order.totalSumma) || 0;
+                const usd = isUsdOrder(order);
+
+                if (!agentSales[agentId]) {
+                    agentSales[agentId] = { name: agentName, totalUZS: 0, totalUSD: 0, count: 0, clients: {} };
+                }
+                if (usd) {
+                    agentSales[agentId].totalUSD += sum;
+                    grandTotalUSD += sum;
+                } else {
+                    agentSales[agentId].totalUZS += sum;
+                    grandTotalUZS += sum;
+                }
+                agentSales[agentId].count++;
+
+                if (!agentSales[agentId].clients[clientId]) {
+                    agentSales[agentId].clients[clientId] = { name: clientName, totalUZS: 0, totalUSD: 0, count: 0 };
+                }
+                if (usd) {
+                    agentSales[agentId].clients[clientId].totalUSD += sum;
+                } else {
+                    agentSales[agentId].clients[clientId].totalUZS += sum;
+                }
+                agentSales[agentId].clients[clientId].count++;
+            });
+
+            const sortedAgents = Object.entries(agentSales)
+                .map(([id, a]) => ({ id, ...a, total: a.totalUZS + a.totalUSD * this.getUsdRate() }))
+                .sort((a, b) => b.total - a.total);
+            const totalClients = new Set(filteredOrders.map(o => o.client?.SD_id).filter(Boolean)).size;
+
+            // Agentlar ma'lumotini global saqlash (drill-down uchun)
+            this._salesAgentData = agentSales;
+
+            return `
+            <div style="display:grid;grid-template-columns:repeat(2,1fr) repeat(3,auto);gap:8px;margin-bottom:10px;">
                 <div style="background:linear-gradient(135deg,rgba(52,199,89,0.15),rgba(52,199,89,0.05));border:1px solid rgba(52,199,89,0.25);border-radius:10px;padding:10px;text-align:center;">
-                    <div style="color:#6ee7b7;font-size:10px;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">💰 Jami summa</div>
-                    <div style="color:#34c759;font-size:16px;font-weight:800;">${this.formatCurrency(totalSum)}</div>
+                    <div style="color:#6ee7b7;font-size:10px;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">💰 SO'M</div>
+                    <div style="color:#34c759;font-size:16px;font-weight:800;">${this.formatCurrency(grandTotalUZS)}</div>
                     <div style="color:#6b7280;font-size:10px;margin-top:2px;">so'm</div>
+                </div>
+                <div style="background:linear-gradient(135deg,rgba(96,165,250,0.15),rgba(96,165,250,0.05));border:1px solid rgba(96,165,250,0.25);border-radius:10px;padding:10px;text-align:center;">
+                    <div style="color:#93c5fd;font-size:10px;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">💵 DOLLAR</div>
+                    <div style="color:#60a5fa;font-size:16px;font-weight:800;">$${this.formatNumber(grandTotalUSD)}</div>
+                    <div style="color:#6b7280;font-size:10px;margin-top:2px;">USD</div>
+                </div>
+                <div style="background:linear-gradient(135deg,rgba(245,158,11,0.15),rgba(245,158,11,0.05));border:1px solid rgba(245,158,11,0.25);border-radius:10px;padding:10px;text-align:center;">
+                    <div style="color:#fcd34d;font-size:10px;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">🧑‍💼 Agentlar</div>
+                    <div style="color:#f59e0b;font-size:16px;font-weight:800;">${sortedAgents.length}</div>
+                    <div style="color:#6b7280;font-size:10px;margin-top:2px;">ta agent</div>
                 </div>
                 <div style="background:linear-gradient(135deg,rgba(59,130,246,0.15),rgba(59,130,246,0.05));border:1px solid rgba(59,130,246,0.25);border-radius:10px;padding:10px;text-align:center;">
                     <div style="color:#93c5fd;font-size:10px;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">👥 Mijozlar</div>
-                    <div style="color:#60a5fa;font-size:16px;font-weight:800;">${sorted.length}</div>
+                    <div style="color:#60a5fa;font-size:16px;font-weight:800;">${totalClients}</div>
                     <div style="color:#6b7280;font-size:10px;margin-top:2px;">ta xaridor</div>
                 </div>
                 <div style="background:linear-gradient(135deg,rgba(168,85,247,0.15),rgba(168,85,247,0.05));border:1px solid rgba(168,85,247,0.25);border-radius:10px;padding:10px;text-align:center;">
@@ -4444,32 +5081,53 @@ class SalesDoctorApp {
                     <div style="color:#a855f7;font-size:16px;font-weight:800;">${filteredOrders.length}</div>
                     <div style="color:#6b7280;font-size:10px;margin-top:2px;">ta buyurtma</div>
                 </div>
-                <div style="background:linear-gradient(135deg,rgba(245,158,11,0.15),rgba(245,158,11,0.05));border:1px solid rgba(245,158,11,0.25);border-radius:10px;padding:10px;text-align:center;">
-                    <div style="color:#fcd34d;font-size:10px;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">📊 O'rtacha</div>
-                    <div style="color:#f59e0b;font-size:16px;font-weight:800;">${this.formatCurrency(filteredOrders.length > 0 ? Math.round(totalSum / filteredOrders.length) : 0)}</div>
-                    <div style="color:#6b7280;font-size:10px;margin-top:2px;">har buyurtma</div>
-                </div>
             </div>
+            <div id="salesDrillContent">
+                ${this._renderAgentsList(sortedAgents, grandTotalUZS, grandTotalUSD)}
+            </div>
+        `;
+        } catch (err) {
+            console.error('renderSalesDetail xatosi:', err);
+            return `<div style="text-align:center;padding:40px;color:#ef4444;">⚠️ Xato: ${err.message}</div>`;
+        }
+    }
+
+    // Agentlar ro'yxatini render qilish
+    _renderAgentsList(sortedAgents, grandTotalUZS, grandTotalUSD) {
+        const rate = this.getUsdRate();
+        const grandTotal = grandTotalUZS + grandTotalUSD * rate;
+        return `
             <div class="data-table-wrapper" style="max-height: 55vh; overflow-y: auto;">
                 <table class="data-table">
                     <thead>
                         <tr>
                             <th class="rank">#</th>
-                            <th>Mijoz nomi</th>
+                            <th>Agent nomi</th>
+                            <th>Mijozlar</th>
                             <th>Buyurtmalar</th>
-                            <th>Jami summa</th>
-                            <th style="width:120px;">Ulush</th>
+                            <th>So'm</th>
+                            <th>Dollar</th>
+                            <th style="width:100px;">Ulush</th>
                         </tr>
                     </thead>
                     <tbody>
-                        ${sorted.map((c, i) => {
-            const percent = totalSum > 0 ? Math.round((c.total / totalSum) * 100) : 0;
+                        ${sortedAgents.map((a, i) => {
+            const agentTotal = (a.totalUZS || 0) + (a.totalUSD || 0) * rate;
+            const percent = grandTotal > 0 ? Math.round((agentTotal / grandTotal) * 100) : 0;
+            const clientCount = Object.keys(a.clients || {}).length;
+            const uzsStr = a.totalUZS > 0 ? this.formatCurrency(a.totalUZS) : '<span style="color:#4b5563;">—</span>';
+            const usdStr = a.totalUSD > 0 ? '$' + this.formatNumber(a.totalUSD) : '<span style="color:#4b5563;">—</span>';
             return `
-                            <tr>
+                            <tr style="cursor:pointer;transition:background 0.2s;" 
+                                onmouseenter="this.style.background='rgba(245,158,11,0.08)'" 
+                                onmouseleave="this.style.background='transparent'"
+                                onclick="window.app?.showAgentClients('${a.id}')">
                                 <td class="rank">${i + 1}</td>
-                                <td class="name">${c.name}</td>
-                                <td class="count">${c.count} ta</td>
-                                <td class="amount" style="color:#34c759;">${this.formatCurrency(c.total)}</td>
+                                <td class="name" style="color:#f59e0b;">🧑‍💼 ${a.name}</td>
+                                <td class="count">${clientCount} ta</td>
+                                <td class="count">${a.count} ta</td>
+                                <td class="amount" style="color:#34c759;">${uzsStr}</td>
+                                <td class="amount" style="color:#60a5fa;">${usdStr}</td>
                                 <td>
                                     <div style="display:flex;align-items:center;gap:6px;">
                                         <div style="flex:1;height:4px;background:rgba(255,255,255,0.06);border-radius:2px;overflow:hidden;">
@@ -4484,6 +5142,81 @@ class SalesDoctorApp {
                 </table>
             </div>
         `;
+    }
+
+    // Agent bosilganda — uning mijozlarini ko'rsatish
+    showAgentClients(agentId) {
+        const agent = this._salesAgentData?.[agentId];
+        if (!agent) return;
+
+        const rate = this.getUsdRate();
+        const clients = Object.values(agent.clients)
+            .map(c => ({ ...c, total: (c.totalUZS || 0) + (c.totalUSD || 0) * rate }))
+            .sort((a, b) => b.total - a.total);
+        const agentTotal = (agent.totalUZS || 0) + (agent.totalUSD || 0) * rate;
+
+        const container = document.getElementById('salesDrillContent');
+        if (!container) return;
+
+        container.innerHTML = `
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
+                <button onclick="window.app?.backToAgents()" style="background:rgba(245,158,11,0.12);border:1px solid rgba(245,158,11,0.3);color:#f59e0b;padding:6px 14px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;transition:all 0.2s;" onmouseenter="this.style.background='rgba(245,158,11,0.2)'" onmouseleave="this.style.background='rgba(245,158,11,0.12)'">← Orqaga</button>
+                <span style="color:#f59e0b;font-weight:600;font-size:14px;">🧑‍💼 ${agent.name}</span>
+                <span style="color:#6b7280;font-size:12px;">${clients.length} ta mijoz · ${agent.count} ta buyurtma</span>
+            </div>
+            <div class="data-table-wrapper" style="max-height: 50vh; overflow-y: auto;">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th class="rank">#</th>
+                            <th>Mijoz nomi</th>
+                            <th>Buyurtmalar</th>
+                            <th>So'm</th>
+                            <th>Dollar</th>
+                            <th style="width:100px;">Ulush</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${clients.map((c, i) => {
+            const percent = agentTotal > 0 ? Math.round((c.total / agentTotal) * 100) : 0;
+            const uzsStr = c.totalUZS > 0 ? this.formatCurrency(c.totalUZS) : '<span style="color:#4b5563;">—</span>';
+            const usdStr = c.totalUSD > 0 ? '$' + this.formatNumber(c.totalUSD) : '<span style="color:#4b5563;">—</span>';
+            return `
+                            <tr>
+                                <td class="rank">${i + 1}</td>
+                                <td class="name">${c.name}</td>
+                                <td class="count">${c.count} ta</td>
+                                <td class="amount" style="color:#34c759;">${uzsStr}</td>
+                                <td class="amount" style="color:#60a5fa;">${usdStr}</td>
+                                <td>
+                                    <div style="display:flex;align-items:center;gap:6px;">
+                                        <div style="flex:1;height:4px;background:rgba(255,255,255,0.06);border-radius:2px;overflow:hidden;">
+                                            <div style="height:100%;width:${percent}%;background:linear-gradient(90deg,#34c759,#30d158);border-radius:2px;"></div>
+                                        </div>
+                                        <span style="font-size:11px;color:#6b7280;min-width:30px;text-align:right;">${percent}%</span>
+                                    </div>
+                                </td>
+                            </tr>
+                        `}).join('')}
+                    </tbody>
+                </table>
+            </div>
+        `;
+    }
+
+    // Agentlar ro'yxatiga qaytish
+    backToAgents() {
+        const container = document.getElementById('salesDrillContent');
+        if (!container || !this._salesAgentData) return;
+
+        const rate = this.getUsdRate();
+        const sortedAgents = Object.entries(this._salesAgentData)
+            .map(([id, a]) => ({ id, ...a, total: (a.totalUZS || 0) + (a.totalUSD || 0) * rate }))
+            .sort((a, b) => b.total - a.total);
+        const grandTotalUZS = sortedAgents.reduce((s, a) => s + (a.totalUZS || 0), 0);
+        const grandTotalUSD = sortedAgents.reduce((s, a) => s + (a.totalUSD || 0), 0);
+
+        container.innerHTML = this._renderAgentsList(sortedAgents, grandTotalUZS, grandTotalUSD);
     }
 
     // Buyurtmalar batafsil
@@ -4566,8 +5299,8 @@ class SalesDoctorApp {
         return `
             <div class="modal-summary">
                 <div class="summary-item">
-                    <span class="summary-label">Jami mahsulotlar</span>
-                    <span class="summary-value">${document.getElementById('totalProducts')?.textContent || '0'}</span>
+                    <span class="summary-label">Ostatka Qiymati</span>
+                    <span class="summary-value">${document.getElementById('stockValueUSD')?.textContent || '$0'}</span>
                 </div>
             </div>
             <p style="text-align: center; color: var(--text-secondary); padding: 40px;">

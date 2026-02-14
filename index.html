@@ -86,6 +86,15 @@
                     </svg>
                     <span>Buyurtma</span>
                 </a>
+                <a href="#" class="nav-item" data-section="pricecheck">
+                    <svg viewBox="0 0 24 24" fill="none">
+                        <path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2"
+                            stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+                        <rect x="9" y="3" width="6" height="4" rx="1" stroke="currentColor" stroke-width="2" />
+                        <path d="M9 12h6M9 16h4" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+                    </svg>
+                    <span>Narx tekshirish</span>
+                </a>
                 <a href="#" class="nav-item" data-section="reports">
                     <svg viewBox="0 0 24 24" fill="none">
                         <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" stroke="currentColor"
@@ -236,7 +245,7 @@
                     </div>
 
                     <div class="stat-card clickable" onclick="window.app?.openProductsDetailModal()"
-                        style="cursor: pointer;" title="Barcha mahsulotlarni ko'rish">
+                        style="cursor: pointer;" title="Ostatka qiymatini ko'rish">
                         <div class="stat-icon products">
                             <svg viewBox="0 0 24 24" fill="none">
                                 <path
@@ -245,10 +254,10 @@
                             </svg>
                         </div>
                         <div class="stat-content">
-                            <span class="stat-label">Mahsulotlar</span>
-                            <span class="stat-value" id="totalProducts">0</span>
+                            <span class="stat-label">Ostatka Qiymati</span>
+                            <span class="stat-value" id="stockValueUSD" style="color: #f59e0b;">$0</span>
                             <div style="font-size: 12px; color: var(--text-secondary); margin-top: 4px;">
-                                <span style="opacity: 0.7;">jami</span>
+                                <span style="opacity: 0.7;">dollar</span>
                             </div>
                         </div>
                         <div class="stat-chart">
@@ -630,6 +639,26 @@
                 </div>
             </div>
 
+            <!-- Price Check Section - Narx tekshirish -->
+            <div class="section-content" id="pricecheckSection" style="display: none;">
+                <div class="section-header">
+                    <h2>Narx tekshirish</h2>
+                    <div class="section-actions">
+                        <input type="text" id="priceCheckSearch" placeholder="🔍 Mahsulot yoki hujjat qidirish..."
+                            style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: #fff; padding: 8px 14px; border-radius: 8px; font-size: 13px; width: 260px; outline: none;">
+                        <select id="priceCheckDocFilter"
+                            style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: #fff; padding: 8px 14px; border-radius: 8px; font-size: 13px; outline: none;">
+                            <option value="all">Barcha hujjatlar</option>
+                        </select>
+                    </div>
+                </div>
+                <div id="priceCheckContent">
+                    <div style="text-align: center; padding: 60px 20px; color: rgba(255,255,255,0.4);">
+                        Yuklanmoqda...
+                    </div>
+                </div>
+            </div>
+
             <!-- Reports Section -->
             <div class="section-content" id="reportsSection" style="display: none;">
                 <div class="section-header">
@@ -738,6 +767,8 @@
         </div>
     </div>
 
+    <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="api.js?v=63"></script>
     <script src="app.js?v=63"></script>

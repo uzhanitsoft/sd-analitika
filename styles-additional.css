@@ -1774,8 +1774,8 @@ tbody tr:hover {
 
 .detail-modal.active {
     display: flex;
-    align-items: center;
-    justify-content: center;
+    align-items: stretch;
+    justify-content: stretch;
 }
 
 .modal-backdrop {
@@ -1784,35 +1784,37 @@ tbody tr:hover {
     left: 0;
     width: 100%;
     height: 100%;
-    background: rgba(0, 0, 0, 0.7);
-    backdrop-filter: blur(8px);
+    background: rgba(0, 0, 0, 0.85);
+    backdrop-filter: blur(12px);
     z-index: 1001;
     cursor: pointer;
 }
 
 .modal-content {
     position: relative;
-    width: 90%;
-    max-width: 900px;
-    max-height: 85vh;
-    background: var(--bg-card);
-    backdrop-filter: var(--blur-card);
-    border: 1px solid var(--border-color);
-    border-radius: var(--border-radius-xl);
+    width: 100%;
+    height: 100%;
+    max-width: 100%;
+    max-height: 100%;
+    background: #0a0c10;
+    border: none;
+    border-radius: 0;
     overflow: hidden;
-    animation: modalSlideIn 0.3s ease;
+    animation: modalFadeIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
     z-index: 1005;
+    display: flex;
+    flex-direction: column;
 }
 
-@keyframes modalSlideIn {
+@keyframes modalFadeIn {
     from {
         opacity: 0;
-        transform: translateY(-20px) scale(0.95);
+        transform: scale(0.97);
     }
 
     to {
         opacity: 1;
-        transform: translateY(0) scale(1);
+        transform: scale(1);
     }
 }
 
@@ -1820,24 +1822,26 @@ tbody tr:hover {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 20px 24px;
-    border-bottom: 1px solid var(--border-color);
-    background: rgba(255, 255, 255, 0.02);
+    padding: 20px 40px;
+    background: linear-gradient(135deg, rgba(99, 102, 241, 0.08) 0%, rgba(16, 185, 129, 0.05) 100%);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    flex-shrink: 0;
 }
 
 .modal-title {
-    font-size: 20px;
-    font-weight: 600;
-    color: var(--text-primary);
+    font-size: 22px;
+    font-weight: 700;
+    color: #f1f5f9;
     margin: 0;
+    letter-spacing: -0.3px;
 }
 
 .modal-close {
-    width: 36px;
-    height: 36px;
-    border: none;
-    background: rgba(255, 255, 255, 0.05);
-    border-radius: 50%;
+    width: 40px;
+    height: 40px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.04);
+    border-radius: 12px;
     cursor: pointer;
     display: flex;
     align-items: center;
@@ -1849,76 +1853,119 @@ tbody tr:hover {
 }
 
 .modal-close:hover {
-    background: rgba(255, 59, 48, 0.2);
+    background: rgba(255, 59, 48, 0.15);
+    border-color: rgba(255, 59, 48, 0.3);
+    transform: scale(1.05);
 }
 
 .modal-close svg {
-    width: 20px;
-    height: 20px;
-    color: var(--text-secondary);
+    width: 18px;
+    height: 18px;
+    color: #94a3b8;
 }
 
 .modal-body {
-    padding: 24px;
-    max-height: calc(85vh - 80px);
+    padding: 28px 40px;
+    flex: 1;
     overflow-y: auto;
+    overflow-x: hidden;
 }
 
-/* Data Table Styles */
+.modal-body::-webkit-scrollbar {
+    width: 6px;
+}
+
+.modal-body::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.modal-body::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 3px;
+}
+
+.modal-body::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.2);
+}
+
+/* Data Table — Premium */
 .data-table {
     width: 100%;
-    border-collapse: collapse;
+    border-collapse: separate;
+    border-spacing: 0;
 }
 
 .data-table th,
 .data-table td {
-    padding: 12px 16px;
+    padding: 14px 20px;
     text-align: left;
-    border-bottom: 1px solid var(--border-color);
 }
 
 .data-table th {
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--text-secondary);
+    font-size: 11px;
+    font-weight: 700;
+    color: #64748b;
     text-transform: uppercase;
-    letter-spacing: 0.5px;
-    background-color: #1a1d23;
+    letter-spacing: 1px;
+    background: linear-gradient(180deg, #12141a 0%, #0f1117 100%);
     position: sticky;
     top: 0;
     z-index: 10;
+    border-bottom: 1px solid rgba(99, 102, 241, 0.15);
+}
+
+.data-table th:first-child {
+    border-radius: 8px 0 0 0;
+}
+
+.data-table th:last-child {
+    border-radius: 0 8px 0 0;
 }
 
 .data-table td {
     font-size: 14px;
-    color: var(--text-primary);
+    color: #e2e8f0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+    transition: all 0.15s ease;
 }
 
-.data-table tr:hover td {
-    background: rgba(255, 255, 255, 0.03);
+.data-table tbody tr {
+    transition: all 0.15s ease;
+}
+
+.data-table tbody tr:nth-child(even) td {
+    background: rgba(255, 255, 255, 0.015);
+}
+
+.data-table tbody tr:hover td {
+    background: rgba(99, 102, 241, 0.06);
 }
 
 .data-table .rank {
-    width: 40px;
-    font-weight: 600;
-    color: var(--text-secondary);
+    width: 50px;
+    font-weight: 700;
+    font-size: 13px;
+    color: #475569;
 }
 
 .data-table .name {
-    font-weight: 500;
+    font-weight: 600;
+    color: #f1f5f9;
 }
 
 .data-table .amount {
-    font-weight: 600;
-    color: var(--accent-green);
+    font-weight: 700;
+    color: #34d399;
+    font-variant-numeric: tabular-nums;
 }
 
 .data-table .amount.negative {
-    color: var(--accent-red);
+    color: #f87171;
 }
 
 .data-table .count {
-    color: var(--accent-blue);
+    color: #818cf8;
+    font-weight: 600;
 }
 
 /* Clickable stat cards */
@@ -1932,40 +1979,54 @@ tbody tr:hover {
     box-shadow: 0 8px 32px rgba(0, 113, 227, 0.2);
 }
 
-/* Modal summary row */
+/* Modal Summary — Premium Grid */
 .modal-summary {
-    display: flex;
-    gap: 24px;
-    margin-bottom: 20px;
-    padding: 16px;
-    background: rgba(255, 255, 255, 0.03);
-    border-radius: var(--border-radius-lg);
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 16px;
+    margin-bottom: 28px;
+    padding: 0;
+    background: transparent;
+    border-radius: 0;
 }
 
 .summary-item {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 6px;
+    padding: 16px 20px;
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.04) 0%, rgba(255, 255, 255, 0.01) 100%);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 14px;
+    transition: all 0.2s ease;
+}
+
+.summary-item:hover {
+    border-color: rgba(99, 102, 241, 0.2);
+    background: linear-gradient(135deg, rgba(99, 102, 241, 0.08) 0%, rgba(99, 102, 241, 0.02) 100%);
 }
 
 .summary-label {
-    font-size: 12px;
-    color: var(--text-secondary);
+    font-size: 11px;
+    color: #64748b;
     text-transform: uppercase;
+    letter-spacing: 0.8px;
+    font-weight: 600;
 }
 
 .summary-value {
-    font-size: 20px;
-    font-weight: 600;
-    color: var(--text-primary);
+    font-size: 22px;
+    font-weight: 700;
+    color: #f1f5f9;
+    font-variant-numeric: tabular-nums;
 }
 
 .summary-value.positive {
-    color: var(--accent-green);
+    color: #34d399;
 }
 
 .summary-value.negative {
-    color: var(--accent-red);
+    color: #f87171;
 }
 
 /* Modern Modal for Profit Details */
@@ -1994,11 +2055,14 @@ tbody tr:hover {
 .modern-modal .modal-content {
     position: relative;
     z-index: 1;
-    background: var(--bg-secondary, #1a1a2e);
-    border-radius: 16px;
+    width: 100%;
+    height: 100%;
+    background: var(--bg-primary, #0d0f14);
+    border-radius: 0;
     padding: 24px;
-    box-shadow: 0 25px 80px rgba(0, 0, 0, 0.5);
+    box-shadow: none;
     color: white;
+    overflow-y: auto;
 }
 
 .modern-modal .modern-table {
