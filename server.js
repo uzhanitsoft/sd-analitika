@@ -1,6 +1,6 @@
-/**
+﻿/**
  * Sales Doctor Analytics - Caching Proxy Server
- * 🚀 Tez yuklash uchun server-side cache
+ * рџљЂ Tez yuklash uchun server-side cache
  */
 
 const express = require('express');
@@ -19,7 +19,7 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname)));
 
 // =============================================================================
-// 🚀 SERVER-SIDE CACHE SYSTEM
+// рџљЂ SERVER-SIDE CACHE SYSTEM
 // =============================================================================
 
 const CACHE_CONFIG = {
@@ -52,12 +52,12 @@ let serverCache = {
     error: null             // Xato
 };
 
-// 🔐 Login funksiyasi - yangi token olish
+// рџ”ђ Login funksiyasi - yangi token olish
 async function refreshToken() {
     const { serverUrl, login, password } = CACHE_CONFIG.API_CREDENTIALS;
     const apiUrl = `https://${serverUrl}/api/v2/`;
 
-    console.log('🔐 Login qilinyapti...');
+    console.log('рџ”ђ Login qilinyapti...');
 
     try {
         const response = await fetch(apiUrl, {
@@ -74,19 +74,19 @@ async function refreshToken() {
         if (data.status && data.result) {
             CACHE_CONFIG.API_CREDENTIALS.userId = data.result.userId;
             CACHE_CONFIG.API_CREDENTIALS.token = data.result.token;
-            console.log(`✅ Login muvaffaqiyatli! userId: ${data.result.userId}`);
+            console.log(`вњ… Login muvaffaqiyatli! userId: ${data.result.userId}`);
             return true;
         } else {
-            console.error('❌ Login xatosi:', data.error);
+            console.error('вќЊ Login xatosi:', data.error);
             return false;
         }
     } catch (error) {
-        console.error('❌ Login network xatosi:', error.message);
+        console.error('вќЊ Login network xatosi:', error.message);
         return false;
     }
 }
 
-// 🌐 Web panel login - session cookie olish (srok uchun)
+// рџЊђ Web panel login - session cookie olish (srok uchun)
 let webSessionCookies = {};
 async function webLogin() {
     try {
@@ -134,15 +134,15 @@ async function webLogin() {
             });
         }
 
-        console.log('✅ Web panel login muvaffaqiyatli!');
+        console.log('вњ… Web panel login muvaffaqiyatli!');
         return true;
     } catch (error) {
-        console.error('❌ Web login xatosi:', error.message);
+        console.error('вќЊ Web login xatosi:', error.message);
         return false;
     }
 }
 
-// 📊 Web paneldan transactions + SROK ma'lumotlarini olish
+// рџ“Љ Web paneldan transactions + SROK ma'lumotlarini olish
 async function fetchTransactionsData() {
     try {
         const { serverUrl } = CACHE_CONFIG.API_CREDENTIALS;
@@ -167,7 +167,7 @@ async function fetchTransactionsData() {
         const json = JSON.parse(body);
 
         if (!json.data || !Array.isArray(json.data)) {
-            console.error('❌ JsonData ma\'lumot formati noto\'g\'ri');
+            console.error('вќЊ JsonData ma\'lumot formati noto\'g\'ri');
             return null;
         }
 
@@ -209,15 +209,15 @@ async function fetchTransactionsData() {
             };
         });
 
-        console.log(`   ✅ ${clients.length} ta mijoz (srok bilan)`);
+        console.log(`   вњ… ${clients.length} ta mijoz (srok bilan)`);
         return clients;
     } catch (error) {
-        console.error('❌ Transactions fetch xatosi:', error.message);
+        console.error('вќЊ Transactions fetch xatosi:', error.message);
         return null;
     }
 }
 
-// 📊 Web paneldan barcha narxlarni olish (catalog prices)
+// рџ“Љ Web paneldan barcha narxlarni olish (catalog prices)
 async function fetchCatalogPrices() {
     try {
         const { serverUrl } = CACHE_CONFIG.API_CREDENTIALS;
@@ -250,7 +250,7 @@ async function fetchCatalogPrices() {
 
         const data = await res.json();
 
-        // Transform data — priceTypes jadvalidagi birinchi qator = sarlavhalar
+        // Transform data вЂ” priceTypes jadvalidagi birinchi qator = sarlavhalar
         const priceTypesData = {};
         if (data.priceTypes && data.priceTypes.length > 1) {
             const headers = data.priceTypes[0]; // ['id', 'name', 'type', 'currency']
@@ -274,7 +274,7 @@ async function fetchCatalogPrices() {
             }
         }
 
-        // Transform prices — product -> priceType -> price
+        // Transform prices вЂ” product -> priceType -> price
         const productPrices = {};
         if (data.prices && data.prices.length > 1) {
             const headers = data.prices[0]; // ['id', 'price_type_id', 'product_id', 'price']
@@ -300,7 +300,7 @@ async function fetchCatalogPrices() {
             productPrices: productPrices
         };
     } catch (error) {
-        console.error('❌ Catalog prices fetch xatosi:', error.message);
+        console.error('вќЊ Catalog prices fetch xatosi:', error.message);
         return null;
     }
 }
@@ -323,11 +323,11 @@ async function apiRequest(method, params = {}, retried = false) {
 
         const data = await response.json();
 
-        // Token expired — auto re-login
+        // Token expired вЂ” auto re-login
         if (data.status === false && !retried) {
             const errMsg = (typeof data.error === 'string' ? data.error : JSON.stringify(data.error || '')).toLowerCase();
             if (errMsg.includes('token') || errMsg.includes('auth') || errMsg.includes('unauthorized') || errMsg.includes('user not found')) {
-                console.log(`   🔄 Token expired, qayta login...`);
+                console.log(`   рџ”„ Token expired, qayta login...`);
                 const loginOk = await refreshToken();
                 if (loginOk) {
                     return apiRequest(method, params, true); // retry
@@ -337,12 +337,12 @@ async function apiRequest(method, params = {}, retried = false) {
 
         // Xato tekshirish
         if (data.status === false) {
-            console.error(`   ⚠️ API ${method} xatosi:`, data.error);
+            console.error(`   вљ пёЏ API ${method} xatosi:`, data.error);
         }
 
         return data;
     } catch (error) {
-        console.error(`   ❌ API ${method} network xatosi:`, error.message);
+        console.error(`   вќЊ API ${method} network xatosi:`, error.message);
         return { status: false, error: error.message };
     }
 }
@@ -374,7 +374,7 @@ async function fetchAllPaginated(method, resultKey, limit = 1000, maxPages = 20,
                 hasMore = false;
             }
         } catch (e) {
-            console.error(`❌ ${method} sahifa ${page} xatosi:`, e.message);
+            console.error(`вќЊ ${method} sahifa ${page} xatosi:`, e.message);
             hasMore = false;
         }
     }
@@ -382,7 +382,7 @@ async function fetchAllPaginated(method, resultKey, limit = 1000, maxPages = 20,
     return allItems;
 }
 
-// To'lovlarni alohida olish — SD API pagination muammosi uchun
+// To'lovlarni alohida olish вЂ” SD API pagination muammosi uchun
 async function fetchAllPayments() {
     let allPayments = [];
     let page = 1;
@@ -394,14 +394,14 @@ async function fetchAllPayments() {
             const data = await apiRequest('getPayment', { page, limit });
             const items = data?.result?.payment || [];
 
-            console.log(`   📄 getPayment sahifa ${page}: ${items.length} ta`);
+            console.log(`   рџ“„ getPayment sahifa ${page}: ${items.length} ta`);
 
             if (items.length === 0) break;
 
             allPayments = allPayments.concat(items);
             page++;
         } catch (e) {
-            console.error(`❌ getPayment sahifa ${page} xatosi:`, e.message);
+            console.error(`вќЊ getPayment sahifa ${page} xatosi:`, e.message);
             break;
         }
     }
@@ -409,124 +409,107 @@ async function fetchAllPayments() {
     return allPayments;
 }
 
-// Cache yangilash - BARCHA MA'LUMOTLARNI YUKLASH
-async function refreshCache() {
-    if (serverCache.isLoading) {
-        console.log('⏳ Cache yangilanmoqda, kutilmoqda...');
-        return;
-    }
+// Timeout yordamchi
+function withTimeout(promise, ms, name) {
+    return Promise.race([
+        promise,
+        new Promise((_, reject) => setTimeout(() => reject(new Error(name + ': ' + (ms/1000) + 's timeout')), ms))
+    ]);
+}
 
+// Cache yangilash - 2 BOSQICHLI
+// BOSQICH 1: Asosiy data -> stats darhol set (F5 ishlaydi)
+// BOSQICH 2: Qoshimcha data -> background (dashboard ga tasir qilmaydi)
+async function refreshCache() {
+    if (serverCache.isLoading) { console.log('Cache yangilanmoqda...'); return; }
     serverCache.isLoading = true;
     serverCache.error = null;
-    const startTime = Date.now();
+    const t0 = Date.now();
+    console.log('\n=== CACHE YANGILANMOQDA (2-bosqich) ===');
 
-    console.log('');
-    console.log('╔════════════════════════════════════════════════╗');
-    console.log('║  🔄 CACHE YANGILANMOQDA...                     ║');
-    console.log('╚════════════════════════════════════════════════╝');
+    const loginOk = await refreshToken();
+    if (!loginOk) { serverCache.isLoading = false; serverCache.error = 'Login xatosi'; return; }
 
-    // Avval login qilish (yangi token olish)
-    const loginSuccess = await refreshToken();
-    if (!loginSuccess) {
-        console.error('❌ Login muvaffaqiyatsiz - cache yangilanmadi');
-        serverCache.isLoading = false;
-        serverCache.error = 'Login xatosi';
-        return;
-    }
+    // Safe wrapper: xato bolsa null qaytaradi
+    const safe = async (name, fn, ms = 120000) => {
+        try { return await withTimeout(fn(), ms, name); }
+        catch(e) { console.log('   WARN ' + name + ': ' + e.message); return null; }
+    };
+
+    // === BOSQICH 1: Asosiy ===
+    console.log('\n[1] Asosiy malumotlar...');
+
+    const r1 = await safe('getOrder', () => fetchAllPaginated('getOrder', 'order', 500, 100));
+    if (r1 !== null) serverCache.orders = r1;
+    console.log('   Buyurtmalar: ' + (serverCache.orders && serverCache.orders.length || 0));
+
+    const r2 = await safe('getProduct', () => fetchAllPaginated('getProduct', 'product', 500), 60000);
+    if (r2 !== null) serverCache.products = r2;
+    console.log('   Mahsulotlar: ' + (serverCache.products && serverCache.products.length || 0));
+
+    const r3 = await safe('getClient', () => fetchAllPaginated('getClient', 'client', 500), 60000);
+    if (r3 !== null) serverCache.clients = r3;
+    console.log('   Mijozlar: ' + (serverCache.clients && serverCache.clients.length || 0));
+
+    const r4 = await safe('getBalance', () => fetchAllPaginated('getBalance', 'balance', 1000), 60000);
+    if (r4 !== null) serverCache.balances = r4;
+    console.log('   Qarzlar: ' + (serverCache.balances && serverCache.balances.length || 0));
+
+    const r5 = await safe('getPayment', () => fetchAllPayments(), 90000);
+    if (r5 !== null) serverCache.payments = r5;
+    console.log('   Tolovlar: ' + (serverCache.payments && serverCache.payments.length || 0));
+
+    const r6 = await safe('getPurchase', () => fetchAllPaginated('getPurchase', 'warehouse', 500, 50), 60000);
+    if (r6 !== null) serverCache.purchases = r6;
+    console.log('   Prixodlar: ' + (serverCache.purchases && serverCache.purchases.length || 0));
+
+    const r7 = await safe('getStock', () => apiRequest('getStock', { limit: 500 }), 30000);
+    if (r7) serverCache.stock = (r7.result && r7.result.warehouse) || [];
+    console.log('   Stock: ' + (serverCache.stock && serverCache.stock.length || 0));
+
+    const r8 = await safe('getPriceType', () => apiRequest('getPriceType', {}), 30000);
+    if (r8) serverCache.priceTypes = (r8.result && r8.result.priceType) || [];
+
+    const r9 = await safe('getAgent', () => apiRequest('getAgent', { page: 1, limit: 100 }), 30000);
+    if (r9) serverCache.agents = (r9.result && r9.result.agent) || [];
+    console.log('   Agentlar: ' + (serverCache.agents && serverCache.agents.length || 0));
+
+    // BOSQICH 1 tugadi - stats va lastUpdate set qilish
+    try { serverCache.stats = calculateStats(); } catch(e) { console.log('WARN stats: ' + e.message); }
+    serverCache.lastUpdate = new Date();
+    serverCache.isLoading = false;
+    console.log('\n[1] BOSQICH 1 TUGADI (' + ((Date.now()-t0)/1000).toFixed(1) + 's) - Dashboard TAYYOR!\n');
+
+    // === BOSQICH 2: Qoshimcha (background) ===
+    // isLoading = false - dashboard endi ishlaydi, bu yerda xato bolsa ham ok
+    console.log('[2] Qoshimcha malumotlar (background)...');
+
+    const rC = await safe('getConsumption', () => fetchConsumptionData(), 90000);
+    if (rC !== null) { serverCache.consumption = rC; console.log('   Rasxodlar: ' + rC.length); }
 
     try {
-        // 1. Buyurtmalar - BARCHA buyurtmalarni olish
-        // MUHIM: SD API dateFilter bilan faqat cheklangan natija qaytaradi (1500 ta),
-        // Shuning uchun dateFilter SIZ barcha buyurtmalarni olib, server tomondan filtrlash kerak
-        console.log('� Buyurtmalar yuklanmoqda (barcha)...');
-
-        // Max pages 100 * 500 = 50,000 buyurtma
-        serverCache.orders = await fetchAllPaginated('getOrder', 'order', 500, 100);
-        console.log(`   ✅ ${serverCache.orders.length} ta buyurtma`);
-
-        // 2. Mahsulotlar
-        console.log('📦 Mahsulotlar yuklanmoqda...');
-        serverCache.products = await fetchAllPaginated('getProduct', 'product', 500);
-        console.log(`   ✅ ${serverCache.products.length} ta mahsulot`);
-
-        // 3. Mijozlar
-        console.log('👥 Mijozlar yuklanmoqda...');
-        serverCache.clients = await fetchAllPaginated('getClient', 'client', 500);
-        console.log(`   ✅ ${serverCache.clients.length} ta mijoz`);
-
-        // 4. Qarzlar (Balance)
-        console.log('💰 Qarzlar yuklanmoqda...');
-        serverCache.balances = await fetchAllPaginated('getBalance', 'balance', 1000);
-        console.log(`   ✅ ${serverCache.balances.length} ta balance`);
-
-        // 5. To'lovlar (alohida funksiya — pagination muammosi uchun)
-        console.log('💳 Tolovlar yuklanmoqda...');
-        serverCache.payments = await fetchAllPayments();
-        console.log(`   ✅ ${serverCache.payments.length} ta to'lov`);
-
-        // 6. Prixodlar (tan narx uchun)
-        console.log('📥 Prixodlar yuklanmoqda...');
-        // Max pages 50 * 500 = 25,000 prixod
-        serverCache.purchases = await fetchAllPaginated('getPurchase', 'warehouse', 500, 50);
-        console.log(`   ✅ ${serverCache.purchases.length} ta prixod`);
-
-        // 6.5. Stock (ostatka)
-        console.log('📦 Stock yuklanmoqda...');
-        const stockRes = await apiRequest('getStock', { limit: 500 });
-        serverCache.stock = stockRes?.result?.warehouse || [];
-        console.log(`   ✅ ${serverCache.stock.length} ta sklad`);
-
-        // 7. Narx turlari
-        console.log('💵 Narx turlari yuklanmoqda...');
-        const priceTypesRes = await apiRequest('getPriceType', {});
-        serverCache.priceTypes = priceTypesRes?.result?.priceType || [];
-        console.log(`   ✅ ${serverCache.priceTypes.length} ta narx turi`);
-
-        // 8. Agentlar
-        console.log('🧑‍💼 Agentlar yuklanmoqda...');
-        const agentsRes = await apiRequest('getAgent', { page: 1, limit: 100 });
-        serverCache.agents = agentsRes?.result?.agent || [];
-        console.log(`   ✅ ${serverCache.agents.length} ta agent`);
-
-        // 8.5. Web paneldan transactions + SROK ma'lumotlarini olish
-        console.log('📅 Srok ma\'lumotlari yuklanmoqda (web panel)...');
-        const webLoggedIn = await webLogin();
-        if (webLoggedIn) {
-            serverCache.transactions = await fetchTransactionsData();
-
-            // 8.6. Web paneldan barcha narxlarni olish (catalog prices)
-            console.log('💰 Catalog narxlar yuklanmoqda (web panel)...');
+        const webOk = await withTimeout(webLogin(), 25000, 'webLogin');
+        if (webOk) {
             try {
-                serverCache.catalogPrices = await fetchCatalogPrices();
-                const totalPrices = serverCache.catalogPrices ? Object.keys(serverCache.catalogPrices.productPrices || {}).length : 0;
-                console.log(`   ✅ ${totalPrices} ta mahsulot narxi yuklandi`);
-            } catch (err) {
-                console.log(`   ⚠️ Catalog narxlar yuklanmadi: ${err.message}`);
-            }
+                const trans = await withTimeout(fetchTransactionsData(), 90000, 'fetchTransactions');
+                serverCache.transactions = trans;
+                console.log('   Tranzaksiyalar: ' + ((trans && trans.length) || 0));
+            } catch(e) { console.log('   WARN Tranzaksiyalar: ' + e.message); }
+
+            try {
+                const cats = await withTimeout(fetchCatalogPrices(), 60000, 'catalogPrices');
+                serverCache.catalogPrices = cats;
+                console.log('   Narxlar: ' + Object.keys((cats && cats.productPrices) || {}).length);
+            } catch(e) { console.log('   WARN Catalog: ' + e.message); }
         } else {
-            console.log('   ⚠️ Web login muvaffaqiyatsiz, srok eski hisoblanadi');
+            console.log('   WARN: Web login muvaffaqiyatsiz');
         }
+    } catch(e) { console.log('   WARN Web panel: ' + e.message); }
 
-        // 9. Statistikani hisoblash
-        console.log('📊 Statistika hisoblanmoqda...');
-        serverCache.stats = calculateStats();
-
-        serverCache.lastUpdate = new Date();
-        const duration = ((Date.now() - startTime) / 1000).toFixed(1);
-
-        console.log('');
-        console.log('╔════════════════════════════════════════════════╗');
-        console.log(`║  ✅ CACHE YANGILANDI (${duration}s)                  ║`);
-        console.log(`║  📅 ${serverCache.lastUpdate.toLocaleString('uz-UZ')}         ║`);
-        console.log('╚════════════════════════════════════════════════╝');
-        console.log('');
-
-    } catch (error) {
-        console.error('❌ Cache yangilash xatosi:', error);
-        serverCache.error = error.message;
-    } finally {
-        serverCache.isLoading = false;
-    }
+    // Yakuniy stats yangilash
+    try { serverCache.stats = calculateStats(); serverCache.lastUpdate = new Date(); } catch(e) {}
+    const tot = ((Date.now() - t0) / 1000).toFixed(1);
+    console.log('\n=== KESH TOLIQ YANGILANDI (' + tot + 's) ===\n');
 }
 
 // Statistikani hisoblash
@@ -678,7 +661,7 @@ function calculateStats() {
             }
         });
 
-        // Ostatka qiymatini hisoblash — tarixiy (period endDate bo'yicha)
+        // Ostatka qiymatini hisoblash вЂ” tarixiy (period endDate bo'yicha)
         const stockValueUSD = calculateStockValueAtDate(dateRange.endDate);
 
         stats[period] = {
@@ -839,7 +822,7 @@ function calculateStatsForOrders(filteredOrders, endDate) {
         }
     });
 
-    // Ostatka qiymati — tarixiy (endDate bo'yicha)
+    // Ostatka qiymati вЂ” tarixiy (endDate bo'yicha)
     const stockValueUSD = calculateStockValueAtDate(endDate || formatLocalDate(getNowUzbekistan()));
 
     return {
@@ -858,7 +841,7 @@ function calculateStatsForOrders(filteredOrders, endDate) {
     };
 }
 
-// 📦 Tarixiy ostatka qiymati — berilgan sanadagi ombor qoldig'ini hisoblash
+// рџ“¦ Tarixiy ostatka qiymati вЂ” berilgan sanadagi ombor qoldig'ini hisoblash
 // Formula: Joriy qoldiq + shu sanadan keyin sotilgan tovarlar - shu sanadan keyin kelgan tovarlar
 function calculateStockValueAtDate(endDate) {
     const USD_RATE = 12200;
@@ -880,7 +863,7 @@ function calculateStockValueAtDate(endDate) {
         });
     });
 
-    // Agar endDate bugun yoki kelajak bo'lsa — joriy qoldiqni qaytarish
+    // Agar endDate bugun yoki kelajak bo'lsa вЂ” joriy qoldiqni qaytarish
     if (endDate >= today) {
         // Joriy qoldiq qiymatini hisoblash
         const priceMap = {};
@@ -904,11 +887,11 @@ function calculateStockValueAtDate(endDate) {
         return Math.round(totalUSD);
     }
 
-    // O'tgan sanalar uchun — tarixiy qoldiqni hisoblash
+    // O'tgan sanalar uchun вЂ” tarixiy qoldiqni hisoblash
     // 1. endDate dan KEYIN sotilgan tovarlarni qaytaramiz (ular o'sha kuni hali omborda edi)
     orders.forEach(order => {
         const orderDate = (order.dateCreate || order.dateDocument || '').split('T')[0].split(' ')[0];
-        if (!orderDate || orderDate <= endDate) return; // endDate da yoki oldin — o'tkazib yuborish
+        if (!orderDate || orderDate <= endDate) return; // endDate da yoki oldin вЂ” o'tkazib yuborish
 
         // Qaytarishlarni o'tkazib yuborish
         const status = parseInt(order.status) || 0;
@@ -929,7 +912,7 @@ function calculateStockValueAtDate(endDate) {
     // 2. endDate dan KEYIN kelgan tovarlarni ayiramiz (ular o'sha kuni hali kelmagan edi)
     purchases.forEach(p => {
         const purchaseDate = (p.date || '').split('T')[0].split(' ')[0];
-        if (!purchaseDate || purchaseDate <= endDate) return; // endDate da yoki oldin — o'tkazib yuborish
+        if (!purchaseDate || purchaseDate <= endDate) return; // endDate da yoki oldin вЂ” o'tkazib yuborish
 
         (p.detail || []).forEach(item => {
             const productId = item.SD_id;
@@ -960,7 +943,7 @@ function calculateStockValueAtDate(endDate) {
         }
     });
 
-    console.log(`📦 Tarixiy ostatka (${endDate}): $${Math.round(totalUSD).toLocaleString()} (bugun: ${today})`);
+    console.log(`рџ“¦ Tarixiy ostatka (${endDate}): $${Math.round(totalUSD).toLocaleString()} (bugun: ${today})`);
     return Math.round(totalUSD);
 }
 
@@ -1021,7 +1004,7 @@ function filterOrdersByDate(orders, { startDate, endDate }) {
 }
 
 // =============================================================================
-// 🌐 CACHE API ENDPOINTS
+// рџЊђ CACHE API ENDPOINTS
 // =============================================================================
 
 // Cache holati
@@ -1252,7 +1235,7 @@ app.get('/api/cache/purchases', (req, res) => {
 });
 
 // ============================================
-// NARX TEKSHIRISH — Prixod bo'yicha narxlar
+// NARX TEKSHIRISH вЂ” Prixod bo'yicha narxlar
 // ============================================
 app.get('/api/cache/priceCheck', (req, res) => {
     if (!serverCache.purchases || !serverCache.priceTypes) {
@@ -1263,7 +1246,7 @@ app.get('/api/cache/priceCheck', (req, res) => {
     const priceTypes = serverCache.priceTypes || [];
     const catalog = serverCache.catalogPrices || null;
 
-    // PriceType xaritasi — ID -> name, currency (API dan)
+    // PriceType xaritasi вЂ” ID -> name, currency (API dan)
     const priceTypeMap = {};
     priceTypes.forEach(pt => {
         priceTypeMap[pt.SD_id] = {
@@ -1281,8 +1264,8 @@ app.get('/api/cache/priceCheck', (req, res) => {
     const catalogCurrencies = catalog?.currencies || {};
     const catalogProductPrices = catalog?.productPrices || {};
 
-    // Narx turlari ro'yxati — faqat sotish narxlari (type=2)
-    // type=1 kirim (purchase) — allaqachon kirim narx ustunida ko'rsatiladi
+    // Narx turlari ro'yxati вЂ” faqat sotish narxlari (type=2)
+    // type=1 kirim (purchase) вЂ” allaqachon kirim narx ustunida ko'rsatiladi
     const allPriceTypesList = [];
     // Keraksiz narx turlarini chiqarib tashlash
     const hiddenPriceTypes = new Set(['d0_7', 'd0_8', 'd0_13', 'd0_14']); // Chakana $, Optom $, Nodir aka dokon, Elaro Narx
@@ -1361,7 +1344,7 @@ app.get('/api/cache/priceCheck', (req, res) => {
     });
 
     // Dollar kursini catalog narxlardan hisoblash
-    // d0_1 = Приходная цена ($), d0_12 = Приходная цена (сум)
+    // d0_1 = РџСЂРёС…РѕРґРЅР°СЏ С†РµРЅР° ($), d0_12 = РџСЂРёС…РѕРґРЅР°СЏ С†РµРЅР° (СЃСѓРј)
     let usdRate = 12800; // default
     const rates = [];
     Object.values(catalogProductPrices).forEach(prices => {
@@ -1612,7 +1595,7 @@ app.get('/api/cache/agentDebts', (req, res) => {
                 }
             }
         });
-        console.log(`📊 agentDebts: ${Object.keys(clientSrokMap).length} ta mijozda srok bor (web panel)`);
+        console.log(`рџ“Љ agentDebts: ${Object.keys(clientSrokMap).length} ta mijozda srok bor (web panel)`);
     }
 
     // Orders dan ham client->agent mapping
@@ -1845,7 +1828,7 @@ app.post('/api/balanceWithSrok', (req, res) => {
 
 // Cache ni majburan yangilash
 app.post('/api/cache/refresh', async (req, res) => {
-    console.log('🔄 Manual cache refresh so\'ralmoqda...');
+    console.log('рџ”„ Manual cache refresh so\'ralmoqda...');
     refreshCache(); // async lekin kutmaymiz
     res.json({ status: true, message: 'Cache yangilanmoqda' });
 });
@@ -1863,8 +1846,8 @@ app.post('/api/proxy', async (req, res) => {
         const server = serverUrl.replace(/^https?:\/\//, '').replace(/\/$/, '');
         const apiUrl = `https://${server}/api/v2/`;
 
-        console.log(`📡 API so'rov: ${apiUrl}`);
-        console.log(`📦 Method: ${body?.method}`);
+        console.log(`рџ“Ў API so'rov: ${apiUrl}`);
+        console.log(`рџ“¦ Method: ${body?.method}`);
 
         const response = await fetch(apiUrl, {
             method: 'POST',
@@ -1877,17 +1860,17 @@ app.post('/api/proxy', async (req, res) => {
         const data = await response.json();
 
         if (data.status) {
-            console.log(`✅ Javob: Muvaffaqiyatli`);
+            console.log(`вњ… Javob: Muvaffaqiyatli`);
             if (data.result) {
-                console.log(`📊 Result:`, Array.isArray(data.result) ? `${data.result.length} ta element` : typeof data.result);
+                console.log(`рџ“Љ Result:`, Array.isArray(data.result) ? `${data.result.length} ta element` : typeof data.result);
             }
         } else {
-            console.log(`❌ Xato:`, data.error || JSON.stringify(data));
+            console.log(`вќЊ Xato:`, data.error || JSON.stringify(data));
         }
 
         res.json(data);
     } catch (error) {
-        console.error('❌ Proxy xatosi:', error.message);
+        console.error('вќЊ Proxy xatosi:', error.message);
         res.status(500).json({
             status: false,
             error: error.message
@@ -1903,7 +1886,7 @@ app.post('/api/login', async (req, res) => {
         const server = serverUrl.replace(/^https?:\/\//, '').replace(/\/$/, '');
         const apiUrl = `https://${server}/api/v2/`;
 
-        console.log(`🔐 Login so'rov: ${apiUrl}`);
+        console.log(`рџ”ђ Login so'rov: ${apiUrl}`);
 
         const response = await fetch(apiUrl, {
             method: 'POST',
@@ -1919,14 +1902,14 @@ app.post('/api/login', async (req, res) => {
         const data = await response.json();
 
         if (data.status && data.result) {
-            console.log(`✅ Login muvaffaqiyatli: userId=${data.result.userId}`);
+            console.log(`вњ… Login muvaffaqiyatli: userId=${data.result.userId}`);
         } else {
-            console.log(`❌ Login xatosi:`, data.error);
+            console.log(`вќЊ Login xatosi:`, data.error);
         }
 
         res.json(data);
     } catch (error) {
-        console.error('❌ Login xatosi:', error.message);
+        console.error('вќЊ Login xatosi:', error.message);
         res.status(500).json({
             status: false,
             error: error.message
@@ -1957,7 +1940,7 @@ app.post('/api/pivotPnl', async (req, res) => {
         // Keyin ma'lumotlarni olish
         const apiUrl = `https://${server}/finans/pivotPnl/loadByProduct?v=null`;
 
-        console.log(`📊 PivotPnL so'rov: ${apiUrl}`);
+        console.log(`рџ“Љ PivotPnL so'rov: ${apiUrl}`);
 
         const response = await fetch(apiUrl, {
             method: 'GET',
@@ -1969,11 +1952,11 @@ app.post('/api/pivotPnl', async (req, res) => {
 
         const data = await response.json();
 
-        console.log(`✅ PivotPnL: ${Array.isArray(data) ? data.length : 0} ta mahsulot`);
+        console.log(`вњ… PivotPnL: ${Array.isArray(data) ? data.length : 0} ta mahsulot`);
 
         res.json({ status: true, result: data });
     } catch (error) {
-        console.error('❌ PivotPnL xatosi:', error.message);
+        console.error('вќЊ PivotPnL xatosi:', error.message);
         res.status(500).json({
             status: false,
             error: error.message
@@ -1989,7 +1972,7 @@ app.post('/api/balanceWithSrok', async (req, res) => {
 
         // Parametrlarni tekshirish
         if (!serverUrl || !auth?.userId || !auth?.token) {
-            console.log('❌ Balance with Srok: serverUrl yoki auth yo\'q');
+            console.log('вќЊ Balance with Srok: serverUrl yoki auth yo\'q');
             return res.status(400).json({
                 status: false,
                 error: 'serverUrl va auth kerak'
@@ -2013,18 +1996,18 @@ app.post('/api/balanceWithSrok', async (req, res) => {
             return response.json();
         }
 
-        console.log(`📅 Balance with Srok: Agent ${agentId || 'hammasi'}`);
+        console.log(`рџ“… Balance with Srok: Agent ${agentId || 'hammasi'}`);
 
         // 1. Qarzdor mijozlarni olish (balance < 0)
         const balanceData = await apiRequest('getBalance', { page: 1, limit: 5000 });
         if (!balanceData.status || !balanceData.result?.balance) {
-            console.log('❌ getBalance xatosi:', balanceData.error);
+            console.log('вќЊ getBalance xatosi:', balanceData.error);
             return res.json({ status: false, error: 'getBalance xatosi' });
         }
 
         // Faqat qarzdor mijozlar (balance < 0)
         const debtors = balanceData.result.balance.filter(c => c.balance < 0);
-        console.log(`📊 Jami ${debtors.length} ta qarzdor mijoz`);
+        console.log(`рџ“Љ Jami ${debtors.length} ta qarzdor mijoz`);
 
         // 2. Barcha buyurtmalarni olish (status != 0, ya'ni bekor qilinmaganlar)
         let allOrders = [];
@@ -2048,7 +2031,7 @@ app.post('/api/balanceWithSrok', async (req, res) => {
                 hasMore = false;
             }
         }
-        console.log(`📦 Jami ${allOrders.length} ta buyurtma`);
+        console.log(`рџ“¦ Jami ${allOrders.length} ta buyurtma`);
 
         // 3. Barcha to'lovlarni olish
         let allPayments = [];
@@ -2065,7 +2048,7 @@ app.post('/api/balanceWithSrok', async (req, res) => {
                 hasMore = false;
             }
         }
-        console.log(`💰 Jami ${allPayments.length} ta to'lov`);
+        console.log(`рџ’° Jami ${allPayments.length} ta to'lov`);
 
         // 4. Har bir buyurtma uchun to'langan summani hisoblash
         const orderPaidAmounts = {}; // orderId -> to'langan summa
@@ -2164,7 +2147,7 @@ app.post('/api/balanceWithSrok', async (req, res) => {
             filteredClients = clients.filter(c => agentClientIds.has(c.SD_id));
         }
 
-        console.log(`✅ Balance with Srok: ${filteredClients.length} ta mijoz (srok bilan)`);
+        console.log(`вњ… Balance with Srok: ${filteredClients.length} ta mijoz (srok bilan)`);
 
         res.json({
             status: true,
@@ -2178,7 +2161,7 @@ app.post('/api/balanceWithSrok', async (req, res) => {
             }
         });
     } catch (error) {
-        console.error('❌ Balance with Srok xatosi:', error.message);
+        console.error('вќЊ Balance with Srok xatosi:', error.message);
         res.status(500).json({
             status: false,
             error: error.message
@@ -2194,23 +2177,23 @@ app.get('/', (req, res) => {
 // Serverni ishga tushirish
 app.listen(PORT, () => {
     console.log('');
-    console.log('╔════════════════════════════════════════════════════════╗');
-    console.log('║     🏥 Sales Doctor Analytics Dashboard                ║');
-    console.log('║     🚀 CACHING SERVER v2.0                             ║');
-    console.log('╠════════════════════════════════════════════════════════╣');
-    console.log(`║  🌐 Server: http://localhost:${PORT}                      ║`);
-    console.log('║  📊 Dashboard tayyor!                                  ║');
-    console.log('║  ⚡ Cache: Har 10 daqiqada avtomatik yangilanadi       ║');
-    console.log('╚════════════════════════════════════════════════════════╝');
+    console.log('в•”в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•—');
+    console.log('в•‘     рџЏҐ Sales Doctor Analytics Dashboard                в•‘');
+    console.log('в•‘     рџљЂ CACHING SERVER v2.0                             в•‘');
+    console.log('в• в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•Ј');
+    console.log(`в•‘  рџЊђ Server: http://localhost:${PORT}                      в•‘`);
+    console.log('в•‘  рџ“Љ Dashboard tayyor!                                  в•‘');
+    console.log('в•‘  вљЎ Cache: Har 10 daqiqada avtomatik yangilanadi       в•‘');
+    console.log('в•љв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ќ');
     console.log('');
 
     // Server boshlanishida cache ni yuklash
-    console.log('🚀 Birinchi cache yuklanmoqda...');
+    console.log('рџљЂ Birinchi cache yuklanmoqda...');
     refreshCache();
 
     // Har 10 daqiqada avtomatik yangilash
     setInterval(() => {
-        console.log('⏰ Avtomatik cache yangilash...');
+        console.log('вЏ° Avtomatik cache yangilash...');
         refreshCache();
     }, CACHE_CONFIG.REFRESH_INTERVAL);
 });
