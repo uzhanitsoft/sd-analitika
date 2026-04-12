@@ -1,0 +1,781 @@
+<!DOCTYPE html>
+<html lang="uz">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sales Doctor Analytics</title>
+    <meta name="description" content="Sales Doctor Analytics Dashboard - Premium analitika paneli">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=SF+Pro+Display:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="styles.css?v=10">
+    <link rel="stylesheet" href="styles-additional.css?v=10">
+    <link rel="stylesheet" href="styles-premium.css?v=10">
+</head>
+
+<body>
+    <div class="app-container">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="logo">
+                <div class="logo-icon">
+                    <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="currentColor" stroke-width="2"
+                            stroke-linecap="round" stroke-linejoin="round" />
+                        <path d="M2 17L12 22L22 17" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                            stroke-linejoin="round" />
+                        <path d="M2 12L12 17L22 12" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                            stroke-linejoin="round" />
+                    </svg>
+                </div>
+                <span class="logo-text">Sales Doctor</span>
+            </div>
+
+            <nav class="nav-menu">
+                <a href="#" class="nav-item active" data-section="dashboard">
+                    <svg viewBox="0 0 24 24" fill="none">
+                        <rect x="3" y="3" width="7" height="7" rx="1" stroke="currentColor" stroke-width="2" />
+                        <rect x="14" y="3" width="7" height="7" rx="1" stroke="currentColor" stroke-width="2" />
+                        <rect x="3" y="14" width="7" height="7" rx="1" stroke="currentColor" stroke-width="2" />
+                        <rect x="14" y="14" width="7" height="7" rx="1" stroke="currentColor" stroke-width="2" />
+                    </svg>
+                    <span>Dashboard</span>
+                </a>
+                <a href="#" class="nav-item" data-section="sales">
+                    <svg viewBox="0 0 24 24" fill="none">
+                        <path d="M12 2v20M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6" stroke="currentColor"
+                            stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                    </svg>
+                    <span>Sotuvlar</span>
+                </a>
+                <a href="#" class="nav-item" data-section="products">
+                    <svg viewBox="0 0 24 24" fill="none">
+                        <path
+                            d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"
+                            stroke="currentColor" stroke-width="2" />
+                        <path d="M3.27 6.96L12 12.01l8.73-5.05M12 22.08V12" stroke="currentColor" stroke-width="2" />
+                    </svg>
+                    <span>Mahsulotlar</span>
+                </a>
+                <a href="#" class="nav-item" data-section="clients">
+                    <svg viewBox="0 0 24 24" fill="none">
+                        <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" stroke="currentColor" stroke-width="2"
+                            stroke-linecap="round" />
+                        <circle cx="9" cy="7" r="4" stroke="currentColor" stroke-width="2" />
+                        <path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75" stroke="currentColor"
+                            stroke-width="2" stroke-linecap="round" />
+                    </svg>
+                    <span>Mijozlar</span>
+                </a>
+                <a href="#" class="nav-item" data-section="agents">
+                    <svg viewBox="0 0 24 24" fill="none">
+                        <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2" stroke="currentColor" stroke-width="2"
+                            stroke-linecap="round" />
+                        <circle cx="12" cy="7" r="4" stroke="currentColor" stroke-width="2" />
+                    </svg>
+                    <span>Agentlar</span>
+                </a>
+                <a href="#" class="nav-item" data-section="lowstock">
+                    <svg viewBox="0 0 24 24" fill="none">
+                        <path
+                            d="M12 9v4M12 17h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"
+                            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                    </svg>
+                    <span>Buyurtma</span>
+                </a>
+                <a href="#" class="nav-item" data-section="pricecheck">
+                    <svg viewBox="0 0 24 24" fill="none">
+                        <path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2"
+                            stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+                        <rect x="9" y="3" width="6" height="4" rx="1" stroke="currentColor" stroke-width="2" />
+                        <path d="M9 12h6M9 16h4" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+                    </svg>
+                    <span>Narx tekshirish</span>
+                </a>
+                <a href="#" class="nav-item" data-section="reports">
+                    <svg viewBox="0 0 24 24" fill="none">
+                        <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" stroke="currentColor"
+                            stroke-width="2" />
+                        <path d="M14 2v6h6M16 13H8M16 17H8M10 9H8" stroke="currentColor" stroke-width="2"
+                            stroke-linecap="round" />
+                    </svg>
+                    <span>Hisobotlar</span>
+                </a>
+            </nav>
+
+            <div class="sidebar-footer">
+                <div class="user-profile">
+                    <div class="user-avatar">
+                        <span>SD</span>
+                    </div>
+                    <div class="user-info">
+                        <span class="user-name">Admin</span>
+                        <span class="user-role">Manager</span>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Header -->
+            <header class="header">
+                <div class="header-left">
+                    <button class="menu-toggle" id="menuToggle">
+                        <svg viewBox="0 0 24 24" fill="none">
+                            <path d="M3 12h18M3 6h18M3 18h18" stroke="currentColor" stroke-width="2"
+                                stroke-linecap="round" />
+                        </svg>
+                    </button>
+                    <div class="page-title">
+                        <h1>Dashboard</h1>
+                        <p class="page-subtitle">Umumiy ko'rinish</p>
+                    </div>
+                </div>
+                <div class="header-right">
+                    <button class="icon-btn refresh-btn" id="refreshBtn" title="Ma'lumotni yangilash">
+                        <svg viewBox="0 0 24 24" fill="none">
+                            <path d="M1 4v6h6M23 20v-6h-6" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                stroke-linejoin="round" />
+                            <path d="M20.49 9A9 9 0 005.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 013.51 15"
+                                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                        </svg>
+                    </button>
+                    <div class="usd-rate-box">
+                        <span class="rate-label">$ Kurs:</span>
+                        <input type="number" id="usdRateInput" value="12200" min="1000" max="50000" step="100">
+                        <button class="rate-save-btn" id="saveRateBtn" title="Saqlash">✓</button>
+                    </div>
+                    <button class="icon-btn notification-btn">
+                        <svg viewBox="0 0 24 24" fill="none">
+                            <path d="M18 8A6 6 0 106 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 01-3.46 0"
+                                stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+                        </svg>
+                        <span class="notification-badge">3</span>
+                    </button>
+                    <button class="icon-btn theme-toggle" id="themeToggle">
+                        <svg class="sun-icon" viewBox="0 0 24 24" fill="none">
+                            <circle cx="12" cy="12" r="5" stroke="currentColor" stroke-width="2" />
+                            <path
+                                d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"
+                                stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+                        </svg>
+                        <svg class="moon-icon" viewBox="0 0 24 24" fill="none">
+                            <path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z" stroke="currentColor" stroke-width="2"
+                                stroke-linecap="round" stroke-linejoin="round" />
+                        </svg>
+                    </button>
+                </div>
+            </header>
+
+            <!-- Dashboard Content -->
+            <div class="dashboard-content">
+                <!-- Date Filter -->
+                <div class="date-filter">
+                    <button class="filter-btn active" data-period="today">Bugun</button>
+                    <button class="filter-btn" data-period="yesterday">Kecha</button>
+                    <button class="filter-btn" data-period="week">Hafta</button>
+                    <button class="filter-btn" data-period="month">Oy</button>
+                    <button class="filter-btn" data-period="year">Yil</button>
+                    <div class="date-range">
+                        <input type="date" id="startDate">
+                        <span>—</span>
+                        <input type="date" id="endDate">
+                        <button class="filter-btn" id="applyDateRange"
+                            style="margin-left: 8px; padding: 6px 12px;">✓</button>
+                    </div>
+                </div>
+
+                <!-- Stats Cards -->
+                <div class="stats-grid">
+                    <div class="stat-card stat-card-wide">
+                        <div class="stat-icon sales">
+                            <svg viewBox="0 0 24 24" fill="none">
+                                <path d="M12 2v20M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6" stroke="currentColor"
+                                    stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                            </svg>
+                        </div>
+                        <div class="stat-content">
+                            <span class="stat-label">Jami Sotuvlar</span>
+                            <div class="dual-currency">
+                                <div class="currency-row">
+                                    <span class="stat-value" id="totalSalesUZS">0</span>
+                                    <span class="currency-label">so'm</span>
+                                </div>
+                                <div class="currency-row secondary">
+                                    <span class="stat-value-small" id="totalSalesUSD">0</span>
+                                    <span class="currency-label">$</span>
+                                </div>
+                            </div>
+                            <div class="stat-change positive">
+                                <svg viewBox="0 0 24 24" fill="none">
+                                    <path d="M18 15l-6-6-6 6" stroke="currentColor" stroke-width="2"
+                                        stroke-linecap="round" stroke-linejoin="round" />
+                                </svg>
+                                <span>+12.5%</span>
+                            </div>
+                        </div>
+                        <div class="stat-chart">
+                            <canvas id="salesSparkline"></canvas>
+                        </div>
+                    </div>
+
+                    <div class="stat-card clickable" onclick="window.app?.openOrdersModal()" style="cursor: pointer;"
+                        title="Buyurtmalarni ko'rish">
+                        <div class="stat-icon orders">
+                            <svg viewBox="0 0 24 24" fill="none">
+                                <path
+                                    d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"
+                                    stroke="currentColor" stroke-width="2" />
+                            </svg>
+                        </div>
+                        <div class="stat-content">
+                            <span class="stat-label">Buyurtmalar</span>
+                            <span class="stat-value" id="totalOrders">0</span>
+                            <div style="font-size: 12px; color: var(--text-secondary); margin-top: 4px;">
+                                <span style="opacity: 0.7;">tanlangan davrda</span>
+                            </div>
+                        </div>
+                        <div class="stat-chart">
+                            <canvas id="ordersSparkline"></canvas>
+                        </div>
+                    </div>
+
+                    <div class="stat-card clickable" onclick="window.app?.openProductsDetailModal()"
+                        style="cursor: pointer;" title="Ostatka qiymatini ko'rish">
+                        <div class="stat-icon products">
+                            <svg viewBox="0 0 24 24" fill="none">
+                                <path
+                                    d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"
+                                    stroke="currentColor" stroke-width="2" />
+                            </svg>
+                        </div>
+                        <div class="stat-content">
+                            <span class="stat-label">Ostatka Qiymati</span>
+                            <span class="stat-value" id="stockValueUSD" style="color: #f59e0b;">$0</span>
+                            <div style="font-size: 12px; color: var(--text-secondary); margin-top: 4px;">
+                                <span style="opacity: 0.7;">dollar</span>
+                            </div>
+                        </div>
+                        <div class="stat-chart">
+                            <canvas id="productsSparkline"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- Iroda agentlari savdosi widget -->
+                    <div class="stat-card stat-card-wide">
+                        <div class="stat-icon iroda">
+                            <svg viewBox="0 0 24 24" fill="none">
+                                <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" stroke="currentColor" stroke-width="2"
+                                    stroke-linecap="round" />
+                                <circle cx="9" cy="7" r="4" stroke="currentColor" stroke-width="2" />
+                                <path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75" stroke="currentColor"
+                                    stroke-width="2" stroke-linecap="round" />
+                            </svg>
+                        </div>
+                        <div class="stat-content">
+                            <span class="stat-label">Iroda agentlari (16 ta)</span>
+                            <div class="dual-currency">
+                                <div class="currency-row">
+                                    <span class="stat-value iroda-value" id="irodaAgentsSalesUZS">0</span>
+                                    <span class="currency-label">so'm</span>
+                                </div>
+                                <div class="currency-row secondary">
+                                    <span class="stat-value-small iroda-usd" id="irodaAgentsSalesUSD">0</span>
+                                    <span class="currency-label">$</span>
+                                </div>
+                                <div class="currency-row secondary" style="margin-top: 2px;">
+                                    <span class="stat-value-small" id="irodaAgentsOrders"
+                                        style="color: #a78bfa;">0</span>
+                                    <span class="currency-label">ta zakaz</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="stat-chart">
+                            <canvas id="irodaSparkline"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- JAMI FOYDA WIDGET -->
+                    <div class="stat-card stat-card-wide clickable" onclick="window.app?.openProfitModal()"
+                        style="background: linear-gradient(135deg, #059669 0%, #10b981 100%); cursor: pointer;"
+                        title="Agentlar bo'yicha foydani ko'rish">
+                        <div class="stat-icon" style="background: rgba(255,255,255,0.2);">
+                            <svg viewBox="0 0 24 24" fill="none">
+                                <path d="M12 2v20M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6" stroke="currentColor"
+                                    stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                            </svg>
+                        </div>
+                        <div class="stat-content">
+                            <span class="stat-label" style="color: rgba(255,255,255,0.8);">Jami Foyda</span>
+                            <div class="dual-currency">
+                                <div class="currency-row">
+                                    <span class="stat-value" id="totalProfitUZS" style="color: white;">0</span>
+                                    <span class="currency-label" style="color: rgba(255,255,255,0.7);">so'm</span>
+                                </div>
+                                <div class="currency-row secondary">
+                                    <span class="stat-value-small" id="totalProfitUSD"
+                                        style="color: rgba(255,255,255,0.9);">$0</span>
+                                    <span class="currency-label" style="color: rgba(255,255,255,0.6);">$</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="stat-chart">
+                            <canvas id="profitSparkline"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- PUL KIRIMLARI WIDGET -->
+                    <div class="stat-card clickable" onclick="window.app?.openKassaModal()"
+                        style="background: linear-gradient(135deg, #1e40af 0%, #3b82f6 100%); cursor: pointer;"
+                        title="Agentlar bo'yicha pul kirimlarini ko'rish">
+                        <div class="stat-icon" style="background: rgba(255,255,255,0.2);">
+                            <svg viewBox="0 0 24 24" fill="none">
+                                <path
+                                    d="M21 18V19C21 20.1 20.1 21 19 21H5C3.89 21 3 20.1 3 19V5C3 3.9 3.89 3 5 3H19C20.1 3 21 3.9 21 5V6H12C10.89 6 10 6.9 10 8V16C10 17.1 10.89 18 12 18H21ZM12 16H22V8H12V16ZM16 13.5C15.17 13.5 14.5 12.83 14.5 12C14.5 11.17 15.17 10.5 16 10.5C16.83 10.5 17.5 11.17 17.5 12C17.5 12.83 16.83 13.5 16 13.5Z"
+                                    fill="currentColor" />
+                            </svg>
+                        </div>
+                        <div class="stat-content">
+                            <span class="stat-label" style="color: rgba(255,255,255,0.8);">Pul Kirimlari</span>
+                            <div class="dual-currency">
+                                <div class="currency-row">
+                                    <span class="stat-value" id="kassaTotalUZS" style="color: white;">0</span>
+                                    <span class="currency-label" style="color: rgba(255,255,255,0.7);">so'm</span>
+                                </div>
+                                <div class="currency-row secondary">
+                                    <span class="stat-value-small" id="kassaTotalUSD"
+                                        style="color: rgba(255,255,255,0.9);">$0</span>
+                                    <span class="currency-label" style="color: rgba(255,255,255,0.6);">$</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- QARZDORLIK PREMIUM SECTION -->
+                <!-- ═══════════════════════════════════════════════════════════════ -->
+                <div class="debt-premium-section">
+                    <div class="debt-premium-header clickable" onclick="window.app?.openDebtModal('all')"
+                        style="cursor: pointer;">
+                        <div class="premium-title">
+                            <div class="premium-icon">
+                                <svg viewBox="0 0 24 24" fill="none">
+                                    <path d="M12 2v20M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"
+                                        stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                        stroke-linejoin="round" />
+                                </svg>
+                            </div>
+                            <div>
+                                <h2>Qarzdorlik Hisoboti</h2>
+                                <p>Jami <span id="debtorCount">0</span> ta qarzdor • <span
+                                        style="color: #4ade80;">Umumiy</span></p>
+                            </div>
+                        </div>
+                        <div class="premium-date">
+                            <svg viewBox="0 0 24 24" fill="none">
+                                <rect x="3" y="4" width="18" height="18" rx="2" stroke="currentColor"
+                                    stroke-width="2" />
+                                <path d="M16 2v4M8 2v4M3 10h18" stroke="currentColor" stroke-width="2"
+                                    stroke-linecap="round" />
+                            </svg>
+                            <span id="currentDate">05.02.2026</span>
+                        </div>
+                    </div>
+
+                    <div class="debt-cards-container">
+                        <!-- So'm Card -->
+                        <div class="debt-premium-card som-card clickable" onclick="window.app?.openDebtModal('som')"
+                            style="cursor: pointer;">
+                            <div class="card-glow"></div>
+                            <div class="card-content">
+                                <div class="card-header">
+                                    <div class="currency-badge som">UZS</div>
+                                    <div class="currency-name">O'zbek so'mi</div>
+                                </div>
+                                <div class="card-value" id="debtSom">-661.8 mln</div>
+                                <div class="card-footer">
+                                    <div class="card-stat">
+                                        <span class="stat-label">Naqd</span>
+                                        <span class="stat-val" id="debtNaqd">-673.6 mln</span>
+                                    </div>
+                                    <div class="card-stat">
+                                        <span class="stat-label">Beznal</span>
+                                        <span class="stat-val positive" id="debtBeznal">+11.8 mln</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="card-bg-pattern"></div>
+                        </div>
+
+                        <!-- Dollar Card -->
+                        <div class="debt-premium-card dollar-card clickable"
+                            onclick="window.app?.openDebtModal('dollar')" style="cursor: pointer;">
+                            <div class="card-glow"></div>
+                            <div class="card-content">
+                                <div class="card-header">
+                                    <div class="currency-badge dollar">USD</div>
+                                    <div class="currency-name">AQSH dollari</div>
+                                </div>
+                                <div class="card-value" id="debtDollar">-295,073</div>
+                                <div class="card-footer">
+                                    <div class="card-stat full-width">
+                                        <span class="stat-label">Kurs</span>
+                                        <span class="stat-val">12,850 UZS</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="card-bg-pattern"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Charts Section -->
+                <div class="charts-section">
+                    <div class="chart-card main-chart">
+                        <div class="chart-header">
+                            <h3>Sotuvlar Dinamikasi</h3>
+                            <div class="chart-tabs">
+                                <button class="tab-btn active" data-chart="revenue">Daromad</button>
+                                <button class="tab-btn" data-chart="orders">Buyurtmalar</button>
+                                <button class="tab-btn" data-chart="profit">Foyda</button>
+                            </div>
+                        </div>
+                        <div class="chart-body">
+                            <canvas id="mainChart"></canvas>
+                        </div>
+                    </div>
+
+                    <div class="chart-card pie-chart">
+                        <div class="chart-header">
+                            <h3>Kategoriyalar bo'yicha</h3>
+                        </div>
+                        <div class="chart-body">
+                            <canvas id="categoryChart"></canvas>
+                        </div>
+                        <div class="chart-legend" id="categoryLegend"></div>
+                    </div>
+                </div>
+
+                <!-- Tables Section -->
+                <div class="tables-section">
+                    <div class="table-card">
+                        <div class="table-header">
+                            <h3>Top Mahsulotlar</h3>
+                            <button class="view-all-btn" onclick="window.app?.openProductsModal()">Barchasini
+                                ko'rish</button>
+                        </div>
+                        <div class="table-body">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>Mahsulot</th>
+                                        <th>Soni</th>
+                                        <th>Summa</th>
+                                        <th>Foyda</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="topProductsTable">
+                                    <!-- Data will be loaded dynamically -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div class="table-card">
+                        <div class="table-header">
+                            <h3>Top Agentlar</h3>
+                            <button class="view-all-btn" onclick="window.app?.openAgentsModal()">Barchasini
+                                ko'rish</button>
+                        </div>
+                        <div class="table-body">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>Agent</th>
+                                        <th>Sotuvlar</th>
+                                        <th>Mijozlar</th>
+                                        <th>Foyda</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="topAgentsTable">
+                                    <!-- Data will be loaded dynamically -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Recent Activity section removed -->
+            </div>
+
+            <!-- Sales Section -->
+            <div class="section-content" id="salesSection" style="display: none;">
+                <div class="section-header">
+                    <h2>Sotuvlar</h2>
+                    <div class="section-actions">
+                        <button class="btn btn-primary" id="exportSales">
+                            <svg viewBox="0 0 24 24" fill="none" width="16" height="16">
+                                <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"
+                                    stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+                            </svg>
+                            Export
+                        </button>
+                    </div>
+                </div>
+                <div class="data-table-wrapper">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Sana</th>
+                                <th>Mijoz</th>
+                                <th>Agent</th>
+                                <th>Summa</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="salesTableBody">
+                            <!-- Sales data will be loaded dynamically -->
+                        </tbody>
+                    </table>
+                </div>
+                <div class="pagination" id="salesPagination"></div>
+            </div>
+
+            <!-- Products Section -->
+            <div class="section-content" id="productsSection" style="display: none;">
+                <div class="section-header">
+                    <h2>Mahsulotlar</h2>
+                    <div class="section-actions">
+                        <input type="text" class="search-input" placeholder="Mahsulot qidirish..." id="productSearch">
+                    </div>
+                </div>
+                <div class="products-grid" id="productsGrid">
+                    <!-- Products will be loaded dynamically -->
+                </div>
+                <div class="pagination" id="productsPagination"></div>
+            </div>
+
+            <!-- Clients Section -->
+            <div class="section-content" id="clientsSection" style="display: none;">
+                <div class="section-header">
+                    <h2>Mijozlar</h2>
+                    <div class="section-actions">
+                        <input type="text" class="search-input" placeholder="Mijoz qidirish..." id="clientSearch">
+                    </div>
+                </div>
+                <div class="data-table-wrapper">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Nomi</th>
+                                <th>Manzil</th>
+                                <th>Telefon</th>
+                                <th>Qarzdorlik</th>
+                                <th>Agent</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="clientsTableBody">
+                            <!-- Clients data will be loaded dynamically -->
+                        </tbody>
+                    </table>
+                </div>
+                <div class="pagination" id="clientsPagination"></div>
+            </div>
+
+            <!-- Agents Section -->
+            <div class="section-content" id="agentsSection" style="display: none;">
+                <div class="section-header"
+                    style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 20px;">
+                    <h2>Agentlar</h2>
+                    <div class="date-filter" style="margin-bottom: 0; gap: 6px;">
+                        <button class="filter-btn agents-period-btn active" data-period="today"
+                            onclick="window.app?.loadAgentsSection('today')">Bugun</button>
+                        <button class="filter-btn agents-period-btn" data-period="yesterday"
+                            onclick="window.app?.loadAgentsSection('yesterday')">Kecha</button>
+                        <button class="filter-btn agents-period-btn" data-period="week"
+                            onclick="window.app?.loadAgentsSection('week')">Hafta</button>
+                        <button class="filter-btn agents-period-btn" data-period="month"
+                            onclick="window.app?.loadAgentsSection('month')">Oy</button>
+                        <button class="filter-btn agents-period-btn" data-period="year"
+                            onclick="window.app?.loadAgentsSection('year')">Yil</button>
+                    </div>
+                </div>
+                <div class="agents-grid" id="agentsGrid">
+                    <!-- Agents will be loaded dynamically -->
+                </div>
+            </div>
+
+            <!-- Low Stock Section - Kam qolgan mahsulotlar -->
+            <div class="section-content" id="lowstockSection" style="display: none;">
+                <div class="section-header">
+                    <h2>Buyurtma kerak</h2>
+                    <div class="section-actions">
+                        <input type="text" id="lowstockSearch" placeholder="Mahsulot qidirish..." class="search-input"
+                            style="width: 250px;">
+                        <span id="lowstockCount" style="color: var(--text-secondary); margin-left: 16px;">Prixod
+                            bo'lgan, 0 qolgan</span>
+                    </div>
+                </div>
+                <div class="data-table-wrapper">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>Mahsulot nomi</th>
+                                <th>Qoldiq</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="lowstockTableBody">
+                            <!-- Low stock products will be loaded dynamically -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Price Check Section - Narx tekshirish -->
+            <div class="section-content" id="pricecheckSection" style="display: none;">
+                <div class="section-header" style="display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 20px;">
+                    <h2 style="margin: 0; white-space: nowrap;">Narx tekshirish</h2>
+                    <div style="display: flex; justify-content: center;">
+                        <input type="text" id="priceCheckSearch" placeholder="🔍 Mahsulot yoki hujjat qidirish..."
+                            style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.15); color: #fff; padding: 10px 20px; border-radius: 12px; font-size: 14px; width: 100%; max-width: 500px; outline: none; transition: all 0.3s ease; box-shadow: 0 2px 8px rgba(0,0,0,0.1);"
+                            onfocus="this.style.borderColor='rgba(99,102,241,0.5)'; this.style.boxShadow='0 2px 16px rgba(99,102,241,0.15)'; this.style.background='rgba(255,255,255,0.08)'"
+                            onblur="this.style.borderColor='rgba(255,255,255,0.15)'; this.style.boxShadow='0 2px 8px rgba(0,0,0,0.1)'; this.style.background='rgba(255,255,255,0.05)'">
+                    </div>
+                    <div class="section-actions" style="margin: 0;">
+                        <select id="priceCheckDocFilter"
+                            style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: #fff; padding: 8px 14px; border-radius: 8px; font-size: 13px; outline: none;">
+                            <option value="all">Barcha hujjatlar</option>
+                        </select>
+                    </div>
+                </div>
+                <div id="priceCheckContent">
+                    <div style="text-align: center; padding: 60px 20px; color: rgba(255,255,255,0.4);">
+                        Yuklanmoqda...
+                    </div>
+                </div>
+            </div>
+
+            <!-- Reports Section -->
+            <div class="section-content" id="reportsSection" style="display: none;">
+                <div class="section-header">
+                    <h2>Hisobotlar</h2>
+                </div>
+                <div class="reports-grid">
+                    <div class="report-card" data-report="daily">
+                        <div class="report-icon">📊</div>
+                        <h3>Kunlik Hisobot</h3>
+                        <p>Bugungi sotuvlar va statistika</p>
+                    </div>
+                    <div class="report-card" data-report="weekly">
+                        <div class="report-icon">📈</div>
+                        <h3>Haftalik Hisobot</h3>
+                        <p>Haftalik tahlil va trend</p>
+                    </div>
+                    <div class="report-card" data-report="monthly">
+                        <div class="report-icon">📉</div>
+                        <h3>Oylik Hisobot</h3>
+                        <p>Oylik to'liq tahlil</p>
+                    </div>
+                    <div class="report-card" data-report="agents">
+                        <div class="report-icon">👥</div>
+                        <h3>Agentlar Hisoboti</h3>
+                        <p>Agent bo'yicha tahlil</p>
+                    </div>
+                    <div class="report-card" data-report="products">
+                        <div class="report-icon">📦</div>
+                        <h3>Mahsulotlar Hisoboti</h3>
+                        <p>Mahsulot bo'yicha tahlil</p>
+                    </div>
+                    <div class="report-card" data-report="clients">
+                        <div class="report-icon">🏪</div>
+                        <h3>Mijozlar Hisoboti</h3>
+                        <p>Mijoz bo'yicha tahlil</p>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- API Configuration Modal -->
+    <div class="modal" id="configModal">
+        <div class="modal-backdrop"></div>
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>API Sozlamalari</h2>
+                <button class="modal-close" id="closeModal">
+                    <svg viewBox="0 0 24 24" fill="none">
+                        <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+                    </svg>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>Server</label>
+                    <input type="text" id="serverUrl" placeholder="rafiq.salesdoc.io" value="rafiq.salesdoc.io">
+                    <small
+                        style="color: var(--text-tertiary); font-size: 12px; margin-top: 4px; display: block;">Sizning
+                        server domeningiz</small>
+                </div>
+                <div class="form-group">
+                    <label>Login</label>
+                    <input type="text" id="apiLogin" placeholder="Sales Doctor login">
+                </div>
+                <div class="form-group">
+                    <label>Parol</label>
+                    <input type="password" id="apiPassword" placeholder="Sales Doctor parol">
+                </div>
+                <div class="connection-status" id="connectionStatus"
+                    style="display: none; padding: 12px; border-radius: 8px; margin-top: 8px;">
+                    <span id="statusText"></span>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" id="cancelConfig">Bekor qilish</button>
+                <button class="btn btn-primary" id="saveConfig">Saqlash</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading Overlay o'chirildi - cache tezkor yuklaydi -->
+
+
+    <!-- Toast Notifications -->
+    <div class="toast-container" id="toastContainer"></div>
+
+    <!-- Detail Modal -->
+    <div class="detail-modal" id="detailModal">
+        <div class="modal-backdrop"
+            onclick="document.getElementById('detailModal').classList.remove('active'); document.body.style.overflow='';">
+        </div>
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title" id="modalTitle">Batafsil</h2>
+                <button class="modal-close"
+                    onclick="document.getElementById('detailModal').classList.remove('active'); document.body.style.overflow='';">
+                    <svg viewBox="0 0 24 24" fill="none">
+                        <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+                    </svg>
+                </button>
+            </div>
+            <div class="modal-body" id="modalBody">
+                <!-- Dynamic content will be inserted here -->
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="api.js?v=63"></script>
+    <script src="app.js?v=63"></script>
+</body>
+
+</html>
