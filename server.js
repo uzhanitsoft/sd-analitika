@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Sales Doctor Analytics - Caching Proxy Server
  * рџљЂ Tez yuklash uchun server-side cache
  */
@@ -463,9 +463,21 @@ async function refreshCache() {
     if (r6 !== null) serverCache.purchases = r6;
     console.log('   Prixodlar: ' + (serverCache.purchases && serverCache.purchases.length || 0));
 
-    const r7 = await safe('getStock', () => apiRequest('getStock', { limit: 500 }), 30000);
-    if (r7) serverCache.stock = (r7.result && r7.result.warehouse) || [];
-    console.log('   Stock: ' + (serverCache.stock && serverCache.stock.length || 0));
+    const r7 = await safe('getStock', () => apiRequest('getStock', { limit: 10000 }), 60000);
+    if (r7) {
+        // getStock API: result.warehouse[i].products[] - barcha warehouselardan mahsulotlarni yig'ish
+        const stockMap = {};
+        const warehouses = r7.result?.warehouse || [];
+        warehouses.forEach(wh => {
+            (wh.products || []).forEach(p => {
+                const id = p.SD_id;
+                if (!stockMap[id]) stockMap[id] = 0;
+                stockMap[id] += parseFloat(p.quantity) || 0;
+            });
+        });
+        serverCache.stock = stockMap; // ID -> quantity object sifatida saqlash
+    }
+    console.log('   Stock: ' + Object.keys(serverCache.stock || {}).length + ' ta mahsulot');
 
     const r8 = await safe('getPriceType', () => apiRequest('getPriceType', {}), 30000);
     if (r8) serverCache.priceTypes = (r8.result && r8.result.priceType) || [];
@@ -484,7 +496,7 @@ async function refreshCache() {
     // isLoading = false - dashboard endi ishlaydi, bu yerda xato bolsa ham ok
     console.log('[2] Qoshimcha malumotlar (background)...');
 
-    const rC = await safe('getConsumption', () => fetchConsumptionData(), 90000);
+    const rC = await safe('getConsumption', () => fetchAllPaginated('getConsumption', 'consumption', 500, 20), 90000);
     if (rC !== null) { serverCache.consumption = rC; console.log('   Rasxodlar: ' + rC.length); }
 
     try {
@@ -847,21 +859,21 @@ function calculateStockValueAtDate(endDate) {
     const USD_RATE = 12200;
     const products = serverCache.products || [];
     const purchases = serverCache.purchases || [];
-    const warehouses = serverCache.stock || [];
     const orders = serverCache.orders || [];
 
     // Bugungi sana
     const today = formatLocalDate(getNowUzbekistan());
 
-    // Joriy stock map (hozirgi holat)
+    // Joriy stock map: serverCache.stock OBJECT { productId: qty } shaklida saqlangan
     const stockMap = {};
-    warehouses.forEach(warehouse => {
-        (warehouse.products || []).forEach(item => {
-            const productId = item.SD_id;
-            const quantity = parseFloat(item.quantity) || 0;
-            stockMap[productId] = (stockMap[productId] || 0) + quantity;
-        });
-    });
+    const stockData = serverCache.stock || {};
+    if (Array.isArray(stockData)) {
+        stockData.forEach(wh => (wh.products||[]).forEach(item => {
+            stockMap[item.SD_id] = (stockMap[item.SD_id]||0) + (parseFloat(item.quantity)||0);
+        }));
+    } else {
+        Object.entries(stockData).forEach(([id, qty]) => { stockMap[id] = parseFloat(qty)||0; });
+    }
 
     // Agar endDate bugun yoki kelajak bo'lsa вЂ” joriy qoldiqni qaytarish
     if (endDate >= today) {
@@ -1417,6 +1429,120 @@ app.get('/api/cache/payments', (req, res) => {
     });
 });
 
+// Rasxodlar (Consumption) - period bo'yicha statistika
+app.get('/api/cache/consumption/:period', (req, res) => {
+    const period = req.params.period || 'today';
+    const { startDate, endDate } = req.query;
+
+    if (!serverCache.consumption) {
+        return res.json({ status: false, error: 'Cache hali tayyor emas' });
+    }
+
+    let dateRange;
+    if (period === 'custom' && startDate && endDate) {
+        dateRange = { startDate, endDate };
+    } else {
+        dateRange = getDateRange(period);
+    }
+
+    const filteredConsumptions = serverCache.consumption.filter(c => {
+        const cDate = (c.date || '').split('T')[0].split(' ')[0];
+        return cDate >= dateRange.startDate && cDate <= dateRange.endDate;
+    });
+
+    let totalUZS = 0;
+    let totalUSD = 0;
+    const catMap = {};
+
+    filteredConsumptions.forEach(c => {
+        const amount = parseFloat(c.summa) || 0;
+        if (amount <= 0) return;
+
+        // Dollar aniqlash - paymentType SD_id = d0_4 dollar
+        const isDollar = c.paymentType?.SD_id === 'd0_4' || c.paymentType?.CS_id === 'd0_4';
+
+        if (isDollar) { totalUSD += amount; } else { totalUZS += amount; }
+
+        // Kategoriya - category_parent va category_child dan olish
+        const parentId = c.category_parent?.SD_id || c.category_parent?.CS_id || null;
+        const parentName = c.category_parent?.name || null;
+        const childName = c.category_child?.name || null;
+
+        // Guruh ID va nomi: agar parent bo'lsa parent bo'yicha guruhlash
+        const catId = parentId || 'uncategorized';
+        const catName = parentName || 'Kategoriyasiz';
+        // Sub-kategoriya nomi
+        const subCatName = childName || '';
+
+        if (!catMap[catId]) {
+            catMap[catId] = { name: catName, totalUZS: 0, totalUSD: 0, count: 0, items: [] };
+        }
+        if (isDollar) { catMap[catId].totalUSD += amount; } else { catMap[catId].totalUZS += amount; }
+        catMap[catId].count++;
+
+        const itemLabel = c.comment || subCatName || catName;
+        const timeStr = (c.date || '').substring(11, 16); // HH:mm
+        const dateStr = (c.date || '').substring(0, 10);  // YYYY-MM-DD
+
+        catMap[catId].items.push({
+            name: itemLabel,
+            subCategory: subCatName,
+            summa: amount,
+            date: dateStr,
+            time: timeStr,
+            isDollar
+        });
+    });
+
+    const categoryList = Object.values(catMap)
+        .sort((a, b) => (b.totalUZS + b.totalUSD*12800) - (a.totalUZS + a.totalUSD*12800));
+
+    res.json({
+        status: true,
+        result: { totalUZS, totalUSD, totalCount: filteredConsumptions.length, categories: categoryList },
+        lastUpdate: serverCache.lastUpdate
+    });
+});
+
+// Yuk kirimi (Purchases) - period
+app.get('/api/cache/purchases/:period', (req, res) => {
+    const period = req.params.period || 'today';
+    const { startDate, endDate } = req.query;
+
+    if (!serverCache.purchases) {
+        return res.json({ status: false, error: 'Cache hali tayyor emas' });
+    }
+
+    let dateRange;
+    if (period === 'custom' && startDate && endDate) {
+        dateRange = { startDate, endDate };
+    } else {
+        dateRange = getDateRange(period);
+    }
+
+    const filteredPurchases = serverCache.purchases.filter(p => {
+        const pDate = (p.date || '').split('T')[0].split(' ')[0];
+        return pDate >= dateRange.startDate && pDate <= dateRange.endDate;
+    });
+
+    let totalAmount = 0;
+    const items = [];
+
+    filteredPurchases.forEach(p => {
+        const pTotal = parseFloat(p.amount) || 0;
+        totalAmount += pTotal;
+        items.push({
+            id: p.SD_id || p.purchase_id,
+            date: p.date,
+            shipper: p.shipper?.name || "Noma'lum",
+            amount: pTotal,
+            currency: (p.priceType?.name && p.priceType.name.toLowerCase().includes('$')) ? 'USD' : 'UZS'
+        });
+    });
+
+    res.json({ status: true, result: { totalAmount, totalCount: filteredPurchases.length, purchases: items }, lastUpdate: serverCache.lastUpdate });
+});
+
 // Kassa - period bo'yicha to'lovlar statistikasi
 app.get('/api/cache/kassa/:period', (req, res) => {
     const period = req.params.period || 'today';
@@ -1828,9 +1954,209 @@ app.post('/api/balanceWithSrok', (req, res) => {
 
 // Cache ni majburan yangilash
 app.post('/api/cache/refresh', async (req, res) => {
-    console.log('рџ”„ Manual cache refresh so\'ralmoqda...');
+    console.log('🔄 Manual cache refresh so\'ralmoqda...');
     refreshCache(); // async lekin kutmaymiz
     res.json({ status: true, message: 'Cache yangilanmoqda' });
+});
+
+// =============================================================================
+// 📊 POWER BI EXPORT ENDPOINTS — barcha ma'lumotlar tekis JSON array da
+// =============================================================================
+
+// 💰 To'lovlar (Kassa / Pul kirimi)
+app.get('/api/export/payments', (req, res) => {
+    if (!serverCache.payments) return res.json({ error: 'Cache tayyor emas' });
+    const data = serverCache.payments.map(p => ({
+        id: p.SD_id,
+        date: (p.paymentDate || '').substring(0, 10),
+        datetime: p.paymentDate || '',
+        amount: parseFloat(p.amount) || 0,
+        currency: p.paymentType?.SD_id === 'd0_4' ? 'USD' : 'UZS',
+        paymentType: p.paymentType?.name || '',
+        paymentTypeId: p.paymentType?.SD_id || '',
+        clientName: p.client?.name || '',
+        clientId: p.client?.SD_id || '',
+        agentName: p.agent?.name || '',
+        agentId: p.agent?.SD_id || '',
+        comment: p.comment || '',
+        cashbox: p.cashbox?.name || ''
+    }));
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.json(data);
+});
+
+// 📥 Yuk kirimi (Zakupka / Prixod)
+app.get('/api/export/purchases', (req, res) => {
+    if (!serverCache.purchases) return res.json({ error: 'Cache tayyor emas' });
+    const data = [];
+    serverCache.purchases.forEach(p => {
+        const docDate = (p.date || '').substring(0, 10);
+        const currency = (p.priceType?.name || '').includes('$') ? 'USD' : 'UZS';
+        (p.detail || []).forEach(item => {
+            data.push({
+                docId: p.SD_id || p.purchase_id,
+                docDate,
+                docDatetime: p.date || '',
+                shipper: p.shipper?.name || '',
+                warehouse: p.name || '',
+                priceType: p.priceType?.name || '',
+                currency,
+                productId: item.SD_id,
+                productName: item.name || '',
+                quantity: parseFloat(item.quantity) || 0,
+                price: parseFloat(item.price) || 0,
+                amount: parseFloat(item.amount) || 0
+            });
+        });
+    });
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.json(data);
+});
+
+// 🏷 Mahsulotlar va ostatka
+app.get('/api/export/products', (req, res) => {
+    if (!serverCache.products) return res.json({ error: 'Cache tayyor emas' });
+    // serverCache.stock endi { SD_id: quantity } object
+    const stockMap = (serverCache.stock && !Array.isArray(serverCache.stock)) ? serverCache.stock : {};
+    const data = serverCache.products.map(p => ({
+        id: p.SD_id,
+        name: p.name || '',
+        unit: p.unit?.name || '',
+        groupName: p.group?.name || '',
+        groupId: p.group?.SD_id || '',
+        barcode: p.barcode || '',
+        stock: stockMap[p.SD_id] || 0
+    }));
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.json(data);
+});
+
+// 📦 Sotuvlar (Buyurtmalar)
+app.get('/api/export/orders', (req, res) => {
+    if (!serverCache.orders) return res.json({ error: 'Cache tayyor emas' });
+    const data = [];
+    serverCache.orders.forEach(o => {
+        const orderDate = (o.dateCreate || o.dateDocument || '').substring(0, 10);
+        const status = parseInt(o.status) || 0;
+        const totalSumma = parseFloat(o.totalSumma) || 0;
+        const currency = o.paymentType?.SD_id === 'd0_4' ? 'USD' : 'UZS';
+        (o.orderProducts || []).forEach(item => {
+            data.push({
+                orderId: o.SD_id,
+                orderDate,
+                orderDatetime: o.dateCreate || '',
+                statusCode: status,
+                statusName: status === 1 ? 'Yangi' : status === 2 ? 'Jarayonda' : status === 3 ? 'Yetkazilgan' : status === 4 ? 'Qaytarilgan' : status === 5 ? 'Bekor' : 'Noma\'lum',
+                clientName: o.client?.name || '',
+                clientId: o.client?.SD_id || '',
+                agentName: o.agent?.name || '',
+                agentId: o.agent?.SD_id || '',
+                currency,
+                paymentType: o.paymentType?.name || '',
+                productId: item.product?.SD_id || '',
+                productName: item.product?.name || item.name || '',
+                quantity: parseFloat(item.quantity) || 0,
+                price: parseFloat(item.price) || 0,
+                summa: parseFloat(item.summa) || 0,
+                discount: parseFloat(item.discount) || 0
+            });
+        });
+        // Agar orderProducts bo'sh bo'lsa — faqat header ma'lumot
+        if (!(o.orderProducts && o.orderProducts.length > 0)) {
+            data.push({
+                orderId: o.SD_id,
+                orderDate,
+                orderDatetime: o.dateCreate || '',
+                statusCode: status,
+                statusName: status === 1 ? 'Yangi' : status === 2 ? 'Jarayonda' : status === 3 ? 'Yetkazilgan' : status === 4 ? 'Qaytarilgan' : status === 5 ? 'Bekor' : 'Noma\'lum',
+                clientName: o.client?.name || '',
+                clientId: o.client?.SD_id || '',
+                agentName: o.agent?.name || '',
+                agentId: o.agent?.SD_id || '',
+                currency,
+                paymentType: o.paymentType?.name || '',
+                productId: '', productName: '',
+                quantity: 0, price: 0,
+                summa: totalSumma,
+                discount: 0
+            });
+        }
+    });
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.json(data);
+});
+
+// 💸 Rasxodlar (Chiqimlar)
+app.get('/api/export/consumption', (req, res) => {
+    if (!serverCache.consumption) return res.json({ error: 'Cache tayyor emas' });
+    const data = serverCache.consumption.map(c => ({
+        id: c.SD_id,
+        date: (c.date || '').substring(0, 10),
+        datetime: c.date || '',
+        summa: parseFloat(c.summa) || 0,
+        currency: c.paymentType?.SD_id === 'd0_4' ? 'USD' : 'UZS',
+        comment: c.comment || '',
+        type: c.type || '',
+        categoryParent: c.category_parent?.name || '',
+        categoryParentId: c.category_parent?.SD_id || '',
+        categoryChild: c.category_child?.name || '',
+        categoryChildId: c.category_child?.SD_id || '',
+        cashbox: c.cashbox?.name || '',
+        paymentType: c.paymentType?.name || ''
+    }));
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.json(data);
+});
+
+// 🤝 Qarzlar (Balanslar)
+app.get('/api/export/balances', (req, res) => {
+    if (!serverCache.balances) return res.json({ error: 'Cache tayyor emas' });
+    const data = [];
+    serverCache.balances.forEach(b => {
+        const byCurrency = b['by-currency'] || [];
+        let uzs = 0, usd = 0;
+        byCurrency.forEach(c => {
+            const amount = parseFloat(c.amount) || 0;
+            if (c.currency_id === 'd0_4') usd = amount;
+            else uzs += amount;
+        });
+        data.push({
+            clientId: b.SD_id,
+            clientName: b.name || '',
+            balanceUZS: uzs,
+            balanceUSD: usd,
+            balanceTotal: parseFloat(b.balance) || 0
+        });
+    });
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.json(data);
+});
+
+// 👥 Mijozlar
+app.get('/api/export/clients', (req, res) => {
+    if (!serverCache.clients) return res.json({ error: 'Cache tayyor emas' });
+    const data = serverCache.clients.map(c => ({
+        id: c.SD_id,
+        name: c.name || '',
+        phone: c.phone || c.phones?.[0] || '',
+        address: c.address || '',
+        groupName: c.group?.name || '',
+        groupId: c.group?.SD_id || '',
+        agentName: c.agent?.name || '',
+        agentId: c.agent?.SD_id || '',
+        balance: parseFloat(c.balance) || 0,
+        inn: c.inn || '',
+        createdAt: (c.created_at || '').substring(0, 10)
+    }));
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.json(data);
 });
 
 // API Proxy endpoint

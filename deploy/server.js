@@ -841,7 +841,35 @@ app.get('/api/cache/stats/:period', (req, res) => {
         });
     }
 
-    if (!serverCache.stats || !serverCache.stats[period]) {
+    // Cache'dan stats olish - agar null bo'lsa real-time hisoblash
+    let result;
+    if (serverCache.stats && serverCache.stats[period]) {
+        result = serverCache.stats[period];
+    } else if (serverCache.orders) {
+        console.log('WARN: stats null, real-time hisoblash: ' + period);
+        try {
+            const freshStats = calculateStats();
+            serverCache.stats = freshStats;
+            result = freshStats[period];
+        } catch(e) {
+            console.error('calculateStats xatosi:', e.message);
+            // Oddiy fallback: faqat sotuvlar summasi
+            const dateRange = getDateRange(period);
+            const filtered = filterOrdersByDate(serverCache.orders, dateRange);
+            let totalSalesUZS = 0, totalOrders = 0;
+            filtered.forEach(function(o) {
+                var st = parseInt(o.status)||0;
+                if (st===4||st===5) return;
+                totalOrders++;
+                totalSalesUZS += parseFloat(o.totalSumma)||0;
+            });
+            result = { totalSalesUZS: totalSalesUZS, totalSalesUSD: 0, totalOrders: totalOrders,
+                       totalClientsOKB: (serverCache.clients||[]).length,
+                       totalClientsAKB: 0, stockValueUSD: 0,
+                       totalProfitUZS: 0, totalProfitUSD: 0,
+                       irodaSalesUZS: 0, irodaSalesUSD: 0, irodaOrders: 0 };
+        }
+    } else {
         return res.json({
             status: false,
             error: 'Cache hali tayyor emas',
@@ -851,7 +879,7 @@ app.get('/api/cache/stats/:period', (req, res) => {
 
     res.json({
         status: true,
-        result: serverCache.stats[period],
+        result: result,
         serverRate: 12200,
         lastUpdate: serverCache.lastUpdate
     });
