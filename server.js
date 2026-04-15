@@ -1543,6 +1543,92 @@ app.get('/api/cache/purchases/:period', (req, res) => {
     res.json({ status: true, result: { totalAmount, totalCount: filteredPurchases.length, purchases: items }, lastUpdate: serverCache.lastUpdate });
 });
 
+// 📦 Prixod Yuklari - period bo'yicha, ta'minotchi bo'yicha guruhlangan (UZS/USD alohida)
+app.get('/api/cache/prixod/:period', (req, res) => {
+    const period = req.params.period || 'today';
+    const { startDate, endDate } = req.query;
+
+    if (!serverCache.purchases) {
+        return res.json({ status: false, error: 'Cache hali tayyor emas' });
+    }
+
+    let dateRange;
+    if (period === 'custom' && startDate && endDate) {
+        dateRange = { startDate, endDate };
+    } else {
+        dateRange = getDateRange(period);
+    }
+
+    const filteredPurchases = serverCache.purchases.filter(p => {
+        const pDate = (p.date || '').split('T')[0].split(' ')[0];
+        return pDate >= dateRange.startDate && pDate <= dateRange.endDate;
+    });
+
+    let totalUZS = 0;
+    let totalUSD = 0;
+    const shipperMap = {};
+
+    filteredPurchases.forEach(p => {
+        // Valyutani priceType nomiga qarab aniqlash
+        const priceTypeName = (p.priceType?.name || '').toLowerCase();
+        const isUSD = priceTypeName.includes('$') || priceTypeName.includes('dollar') || priceTypeName.includes('usd');
+
+        // Ombordagi mahsulotlar summasi (detail bo'yicha hisoblash)
+        let docUZS = 0;
+        let docUSD = 0;
+
+        // p.amount - hujjat jami summasi
+        const docAmount = parseFloat(p.amount) || 0;
+
+        if (isUSD) {
+            docUSD += docAmount;
+            totalUSD += docAmount;
+        } else {
+            docUZS += docAmount;
+            totalUZS += docAmount;
+        }
+
+        // Ta'minotchi bo'yicha guruhlash
+        const shipperId = p.shipper?.SD_id || p.shipper?.CS_id || 'unknown';
+        const shipperName = p.shipper?.name || "Noma'lum ta'minotchi";
+
+        if (!shipperMap[shipperId]) {
+            shipperMap[shipperId] = {
+                name: shipperName,
+                totalUZS: 0,
+                totalUSD: 0,
+                count: 0,
+                docs: []
+            };
+        }
+
+        shipperMap[shipperId].totalUZS += docUZS;
+        shipperMap[shipperId].totalUSD += docUSD;
+        shipperMap[shipperId].count++;
+        shipperMap[shipperId].docs.push({
+            date: (p.date || '').substring(0, 10),
+            amount: docAmount,
+            currency: isUSD ? 'USD' : 'UZS',
+            itemCount: (p.detail || []).length
+        });
+    });
+
+    // Ta'minotchilarni jami summa bo'yicha tartiblash
+    const shipperList = Object.values(shipperMap)
+        .sort((a, b) => (b.totalUZS + b.totalUSD * 12200) - (a.totalUZS + a.totalUSD * 12200));
+
+    res.json({
+        status: true,
+        result: {
+            totalUZS,
+            totalUSD,
+            totalCount: filteredPurchases.length,
+            shippers: shipperList
+        },
+        lastUpdate: serverCache.lastUpdate
+    });
+});
+
 // Kassa - period bo'yicha to'lovlar statistikasi
 app.get('/api/cache/kassa/:period', (req, res) => {
     const period = req.params.period || 'today';

@@ -488,6 +488,11 @@ async function refreshCache() {
         serverCache.agents = agentsRes?.result?.agent || [];
         console.log(`   ✅ ${serverCache.agents.length} ta agent`);
 
+        // 8.3. Rasxodlar (consumption)
+        console.log('💸 Rasxodlar yuklanmoqda...');
+        serverCache.consumption = await fetchAllPaginated('getConsumption', 'consumption', 500, 30);
+        console.log(`   ✅ ${serverCache.consumption.length} ta rasxod`);
+
         // 8.5. Web paneldan transactions + SROK ma'lumotlarini olish
         console.log('📅 Srok ma\'lumotlari yuklanmoqda (web panel)...');
         const webLoggedIn = await webLogin();
@@ -1342,6 +1347,104 @@ app.get('/api/cache/kassa/:period', (req, res) => {
     });
 });
 
+// 💸 Rasxodlar (consumption) endpoint
+app.get('/api/cache/consumption/:period', async (req, res) => {
+    const period = req.params.period || 'today';
+    const { startDate, endDate } = req.query;
+
+    let dateRange;
+    if (period === 'custom' && startDate && endDate) {
+        dateRange = { startDate, endDate };
+    } else {
+        dateRange = getDateRange(period);
+    }
+
+    // Cache'dan olish yoki real-time fetch
+    let consumptions = serverCache.consumption || [];
+
+    // Agar cache'da yo'q bo'lsa - API dan olish
+    if (!consumptions || consumptions.length === 0) {
+        try {
+            console.log('Consumption cache yo\'q, API dan olinmoqda...');
+            const loginOk = await refreshToken();
+            if (loginOk) {
+                consumptions = await fetchAllPaginated('getConsumption', 'consumption', 500, 20);
+                serverCache.consumption = consumptions;
+                console.log('Consumptions cached:', consumptions.length);
+            }
+        } catch(e) {
+            console.error('Consumption fetch error:', e.message);
+        }
+    }
+
+    // Sana bo'yicha filtrlash
+    const filtered = consumptions.filter(c => {
+        const d = (c.date || c.dateCreate || c.dateDocument || '').split(' ')[0].split('T')[0];
+        return d >= dateRange.startDate && d <= dateRange.endDate;
+    });
+
+    // Summa hisoblash
+    const USD_RATE = 12200;
+    let totalUZS = 0;
+    let totalUSD = 0;
+    const byCategory = {};
+
+    filtered.forEach(c => {
+        const summa = parseFloat(c.summa) || 0;
+
+        // Currency: paymentType.SD_id=d0_4 → Dollar, boshqasi → UZS
+        // Yoki c.currency string sifatida kelishi ham mumkin
+        const payTypeId = c.paymentType && c.paymentType.SD_id;
+        const currencyStr = typeof c.currency === 'string' ? c.currency : '';
+        const isUSD = payTypeId === 'd0_4' || currencyStr === 'USD' || currencyStr === 'Доллар США';
+
+        if (isUSD) {
+            totalUSD += summa;
+        } else {
+            totalUZS += summa;
+        }
+
+        // Kategoriya: API da category_parent.name / category_child.name (nested object)
+        // consumption.json da esa categoryParent / categoryChild (flat string)
+        let parent = 'Boshqa';
+        let child = '';
+
+        if (c.category_parent && c.category_parent.name) {
+            // API format: {category_parent: {name: "Avtomashina"}}
+            parent = c.category_parent.name;
+            child = (c.category_child && c.category_child.name) || '';
+        } else if (c.categoryParent) {
+            // Flat format (consumption.json)
+            parent = c.categoryParent;
+            child = c.categoryChild || '';
+        } else if (c.category && (c.category.name || c.category.title)) {
+            parent = c.category.name || c.category.title;
+        }
+
+        const catName = child ? `${parent} | ${child}` : parent;
+
+        if (!byCategory[catName]) byCategory[catName] = { uzs: 0, usd: 0, count: 0, parent };
+        if (isUSD) byCategory[catName].usd += summa;
+        else byCategory[catName].uzs += summa;
+        byCategory[catName].count++;
+    });
+
+    const categories = Object.entries(byCategory)
+        .map(([name, v]) => ({ name, totalUZS: v.uzs, totalUSD: v.usd, count: v.count, parent: v.parent }))
+        .sort((a, b) => (b.totalUZS + b.totalUSD * USD_RATE) - (a.totalUZS + a.totalUSD * USD_RATE));
+
+    res.json({
+        status: true,
+        result: {
+            totalUZS: Math.round(totalUZS),
+            totalUSD: Math.round(totalUSD),
+            totalCount: filtered.length,
+            categories
+        },
+        lastUpdate: serverCache.lastUpdate
+    });
+});
+
 // Agentlar
 app.get('/api/cache/agents', (req, res) => {
     if (!serverCache.agents) {
@@ -1976,6 +2079,69 @@ app.post('/api/balanceWithSrok', async (req, res) => {
             error: error.message
         });
     }
+});
+
+// 📦 Prixod Yuklari - sana filtri bo'yicha, ta'minotchi bo'yicha guruhlangan
+app.get('/api/cache/prixod/:period', (req, res) => {
+    const period = req.params.period || 'today';
+    const { startDate, endDate } = req.query;
+
+    if (!serverCache.purchases) {
+        return res.json({ status: false, error: 'Cache hali tayyor emas' });
+    }
+
+    let dateRange;
+    if (period === 'custom' && startDate && endDate) {
+        dateRange = { startDate, endDate };
+    } else {
+        dateRange = getDateRange(period);
+    }
+
+    const filteredPurchases = serverCache.purchases.filter(p => {
+        const pDate = (p.date || '').split('T')[0].split(' ')[0];
+        return pDate >= dateRange.startDate && pDate <= dateRange.endDate;
+    });
+
+    let totalUZS = 0;
+    let totalUSD = 0;
+    const shipperMap = {};
+
+    filteredPurchases.forEach(p => {
+        const priceTypeName = (p.priceType?.name || '').toLowerCase();
+        const isUSD = priceTypeName.includes('$') || priceTypeName.includes('dollar') || priceTypeName.includes('usd');
+
+        const docAmount = parseFloat(p.amount) || 0;
+        let docUZS = 0, docUSD = 0;
+
+        if (isUSD) { docUSD = docAmount; totalUSD += docAmount; }
+        else { docUZS = docAmount; totalUZS += docAmount; }
+
+        const shipperId = p.shipper?.SD_id || p.shipper?.CS_id || 'unknown';
+        const shipperName = p.shipper?.name || "Noma'lum ta'minotchi";
+
+        if (!shipperMap[shipperId]) {
+            shipperMap[shipperId] = { name: shipperName, totalUZS: 0, totalUSD: 0, count: 0, docs: [] };
+        }
+
+        shipperMap[shipperId].totalUZS += docUZS;
+        shipperMap[shipperId].totalUSD += docUSD;
+        shipperMap[shipperId].count++;
+        shipperMap[shipperId].docs.push({
+            date: (p.date || '').substring(0, 10),
+            amount: docAmount,
+            currency: isUSD ? 'USD' : 'UZS',
+            itemCount: (p.detail || []).length
+        });
+    });
+
+    const shipperList = Object.values(shipperMap)
+        .sort((a, b) => (b.totalUZS + b.totalUSD * 12200) - (a.totalUZS + a.totalUSD * 12200));
+
+    res.json({
+        status: true,
+        result: { totalUZS, totalUSD, totalCount: filteredPurchases.length, shippers: shipperList },
+        lastUpdate: serverCache.lastUpdate
+    });
 });
 
 // Bosh sahifa

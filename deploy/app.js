@@ -450,6 +450,8 @@ class SalesDoctorApp {
                 .catch(e => console.error('Chart/Table xatosi:', e));
             this.loadDebtAndPaymentStats();
             this.loadKassaStats(CACHE_BASE_URL);
+            this.loadRasxodStats(CACHE_BASE_URL);
+            this.loadPrixodStats(CACHE_BASE_URL);
 
         } catch (error) {
             console.error('❌ Server cache xatosi:', error);
@@ -5432,7 +5434,11 @@ class SalesDoctorApp {
                 ? 'http://localhost:3000'
                 : 'https://sd-analitika-production.up.railway.app');
 
-            const res = await this.fetchWithTimeout(`${CACHE_BASE_URL}/api/cache/kassa/${this.currentPeriod}`, 5000);
+            let kassaUrl = `${CACHE_BASE_URL}/api/cache/kassa/${this.currentPeriod}`;
+            if (this.currentPeriod === 'custom' && this.customStartDate && this.customEndDate) {
+                kassaUrl += `?startDate=${this.customStartDate}&endDate=${this.customEndDate}`;
+            }
+            const res = await this.fetchWithTimeout(kassaUrl, 5000);
             const data = await res.json();
 
             if (data.status && data.result) {
@@ -5577,9 +5583,207 @@ class SalesDoctorApp {
         document.body.appendChild(overlay);
     }
 
+    // 💸 Rasxodlar statistikasini yuklash
+    async loadRasxodStats(baseUrl) {
+        try {
+            const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+            const CACHE_BASE_URL = baseUrl || (isLocal
+                ? 'http://localhost:3000'
+                : 'https://sd-analitika-production.up.railway.app');
+
+            let rasxodUrl = `${CACHE_BASE_URL}/api/cache/consumption/${this.currentPeriod}`;
+            if (this.currentPeriod === 'custom' && this.customStartDate && this.customEndDate) {
+                rasxodUrl += `?startDate=${this.customStartDate}&endDate=${this.customEndDate}`;
+            }
+            const res = await this.fetchWithTimeout(rasxodUrl, 8000);
+            const data = await res.json();
+
+            if (data.status && data.result) {
+                const { totalUZS, totalUSD } = data.result;
+
+                const rasxodUZSEl = document.getElementById('rasxodTotalUZS');
+                const rasxodUSDEl = document.getElementById('rasxodTotalUSD');
+
+                if (rasxodUZSEl) rasxodUZSEl.textContent = Math.round(totalUZS).toLocaleString('ru-RU');
+                if (rasxodUSDEl) rasxodUSDEl.textContent = '$' + Math.round(totalUSD).toLocaleString();
+
+                this._rasxodData = data.result;
+            }
+        } catch (error) {
+            console.error('Rasxod yuklash xatosi:', error);
+        }
+    }
+
+    // 📦 Prixod Yuklari statistikasini yuklash
+    async loadPrixodStats(baseUrl) {
+        try {
+            const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+            const CACHE_BASE_URL = baseUrl || (isLocal
+                ? 'http://localhost:3000'
+                : 'https://sd-analitika-production.up.railway.app');
+
+            let prixodUrl = `${CACHE_BASE_URL}/api/cache/prixod/${this.currentPeriod}`;
+            if (this.currentPeriod === 'custom' && this.customStartDate && this.customEndDate) {
+                prixodUrl += `?startDate=${this.customStartDate}&endDate=${this.customEndDate}`;
+            }
+            const res = await this.fetchWithTimeout(prixodUrl, 8000);
+            const data = await res.json();
+
+            if (data.status && data.result) {
+                const { totalUZS, totalUSD } = data.result;
+
+                const prixodUZSEl = document.getElementById('prixodTotalUZS');
+                const prixodUSDEl = document.getElementById('prixodTotalUSD');
+
+                if (prixodUZSEl) prixodUZSEl.textContent = Math.round(totalUZS).toLocaleString('ru-RU');
+                if (prixodUSDEl) prixodUSDEl.textContent = '$' + Math.round(totalUSD).toLocaleString();
+
+                this._prixodData = data.result;
+                console.log(`📦 Prixod: ${Math.round(totalUZS).toLocaleString()} so'm + $${Math.round(totalUSD).toLocaleString()}`);
+            }
+        } catch (error) {
+            console.error('Prixod yuklash xatosi:', error);
+        }
+    }
+
+    // 📦 Prixod Yuklari modal - ta'minotchilar bo'yicha
+    openPrixodModal() {
+        const data = this._prixodData;
+        if (!data) {
+            this.showToast('warning', 'Ma\'lumot yo\'q', 'Prixod ma\'lumotlari hali yuklanmadi');
+            return;
+        }
+
+        const overlay = document.createElement('div');
+        overlay.className = 'detail-overlay';
+        overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.75);z-index:1000;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(6px);';
+
+        const periodLabels = {
+            'today': 'Bugun',
+            'yesterday': 'Kecha',
+            'week': 'Hafta',
+            'month': 'Oy',
+            'year': 'Yil',
+            'custom': 'Tanlangan davr'
+        };
+        const periodLabel = this.currentPeriod === 'custom' && this.customStartDate
+            ? `${this.customStartDate} — ${this.customEndDate}`
+            : (periodLabels[this.currentPeriod] || this.currentPeriod);
+
+        const shippers = data.shippers || [];
+
+        const shipperRows = shippers.map((shipper, i) => {
+            const uzsStr = shipper.totalUZS > 0 ? Math.round(shipper.totalUZS).toLocaleString('ru-RU') : '—';
+            const usdStr = shipper.totalUSD > 0 ? '$' + Math.round(shipper.totalUSD).toLocaleString() : '—';
+            const docCount = shipper.count || 0;
+            const hasDocs = (shipper.docs || []).length > 0;
+
+            const docRows = (shipper.docs || []).map((doc, j) => {
+                const docAmountStr = doc.currency === 'USD'
+                    ? '$' + Math.round(doc.amount).toLocaleString()
+                    : Math.round(doc.amount).toLocaleString('ru-RU') + ' so\'m';
+                return `
+                    <tr id="prixod-docs-${i}-${j}" style="display: none; background: rgba(245,158,11,0.05); border-bottom: 1px solid rgba(255,255,255,0.04);">
+                        <td style="padding: 8px 16px 8px 44px; color: #6b7280; font-size: 12px;">${j + 1}</td>
+                        <td style="padding: 8px 16px; font-size: 13px; color: #d1d5db;">📄 ${doc.date}</td>
+                        <td colspan="2" style="padding: 8px 16px; text-align: right; color: #fbbf24; font-size: 13px; font-weight: 600;">${docAmountStr}</td>
+                        <td style="padding: 8px 16px; text-align: center; color: #6b7280; font-size: 12px;">${doc.itemCount} mahsulot</td>
+                    </tr>`;
+            }).join('');
+
+            return `
+                <tr style="border-bottom: 1px solid rgba(255,255,255,0.06); cursor: pointer; transition: background 0.2s;"
+                    onmouseenter="this.style.background='rgba(255,255,255,0.04)'"
+                    onmouseleave="this.style.background='transparent'"
+                    onclick="
+                        const rows = document.querySelectorAll('[id^=\\'prixod-docs-${i}-\\']');
+                        const arrow = document.getElementById('prixod-arrow-${i}');
+                        const isOpen = arrow.textContent === '▼';
+                        rows.forEach(r => r.style.display = isOpen ? 'none' : '');
+                        arrow.textContent = isOpen ? '▶' : '▼';
+                    ">
+                    <td style="padding: 14px 16px; color: #9ca3af;">${i + 1}</td>
+                    <td style="padding: 14px 16px; font-weight: 600; color: #fef3c7;">
+                        <span id="prixod-arrow-${i}" style="color: #6b7280; margin-right: 8px; font-size: 10px;">▶</span>
+                        🏭 ${shipper.name}
+                        <span style="color: #6b7280; font-size: 12px; margin-left: 8px;">(${docCount} hujjat)</span>
+                    </td>
+                    <td style="padding: 14px 16px; text-align: right; color: #f59e0b; font-weight: 700;">${uzsStr}</td>
+                    <td style="padding: 14px 16px; text-align: right; color: #fbbf24; font-weight: 700;">${usdStr}</td>
+                    <td style="padding: 14px 16px; text-align: center; color: #9ca3af; font-weight: 500;">${docCount}</td>
+                </tr>
+                ${docRows}`;
+        }).join('');
+
+        overlay.innerHTML = `
+            <div style="background: var(--bg-card, #1a1a2e); border-radius: 20px; width: 95%; max-width: 1000px; max-height: 95vh; overflow: hidden; border: 1px solid rgba(245,158,11,0.25); box-shadow: 0 25px 60px rgba(0,0,0,0.6), 0 0 0 1px rgba(245,158,11,0.1); display: flex; flex-direction: column;">
+                <div style="padding: 24px 28px; border-bottom: 1px solid rgba(255,255,255,0.08); display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; background: linear-gradient(135deg, rgba(245,158,11,0.1), transparent);">
+                    <div>
+                        <h2 style="margin: 0; font-size: 24px; color: white; display: flex; align-items: center; gap: 10px;">
+                            <span style="font-size: 28px;">📦</span> Prixod Yuklari
+                        </h2>
+                        <p style="margin: 4px 0 0; color: #9ca3af; font-size: 14px;">${periodLabel} • ${data.totalCount} ta hujjat • Ta'minotchi ustiga bosing → tafsilot</p>
+                    </div>
+                    <button onclick="this.closest('.detail-overlay').remove()"
+                        style="background: rgba(255,255,255,0.1); border: none; color: white; width: 40px; height: 40px; border-radius: 12px; cursor: pointer; font-size: 20px; transition: background 0.2s; display: flex; align-items: center; justify-content: center;"
+                        onmouseenter="this.style.background='rgba(255,255,255,0.2)'"
+                        onmouseleave="this.style.background='rgba(255,255,255,0.1)'">✕</button>
+                </div>
+
+                <div style="padding: 16px 28px; display: flex; gap: 16px; border-bottom: 1px solid rgba(255,255,255,0.08); flex-shrink: 0;">
+                    <div style="flex: 1; background: rgba(245,158,11,0.12); border-radius: 14px; padding: 20px; border: 1px solid rgba(245,158,11,0.25);">
+                        <div style="font-size: 11px; color: #fcd34d; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 8px; font-weight: 600;">💴 Jami So'm</div>
+                        <div style="font-size: 28px; font-weight: 800; color: #f59e0b;">${Math.round(data.totalUZS).toLocaleString('ru-RU')}</div>
+                        <div style="font-size: 12px; color: #6b7280; margin-top: 4px;">so'm</div>
+                    </div>
+                    <div style="flex: 1; background: rgba(251,191,36,0.12); border-radius: 14px; padding: 20px; border: 1px solid rgba(251,191,36,0.25);">
+                        <div style="font-size: 11px; color: #fde68a; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 8px; font-weight: 600;">💵 Jami Dollar</div>
+                        <div style="font-size: 28px; font-weight: 800; color: #fbbf24;">$${Math.round(data.totalUSD).toLocaleString()}</div>
+                        <div style="font-size: 12px; color: #6b7280; margin-top: 4px;">USD</div>
+                    </div>
+                    <div style="flex: 1; background: rgba(168,85,247,0.1); border-radius: 14px; padding: 20px; border: 1px solid rgba(168,85,247,0.2);">
+                        <div style="font-size: 11px; color: #d8b4fe; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 8px; font-weight: 600;">🏭 Ta'minotchilar</div>
+                        <div style="font-size: 28px; font-weight: 800; color: #a855f7;">${shippers.length}</div>
+                        <div style="font-size: 12px; color: #6b7280; margin-top: 4px;">ta yetkazuvchi</div>
+                    </div>
+                    <div style="flex: 1; background: rgba(20,184,166,0.1); border-radius: 14px; padding: 20px; border: 1px solid rgba(20,184,166,0.2);">
+                        <div style="font-size: 11px; color: #99f6e4; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 8px; font-weight: 600;">📋 Hujjatlar</div>
+                        <div style="font-size: 28px; font-weight: 800; color: #14b8a6;">${data.totalCount}</div>
+                        <div style="font-size: 12px; color: #6b7280; margin-top: 4px;">ta prixod</div>
+                    </div>
+                </div>
+
+                <div style="overflow-y: auto; flex: 1;">
+                    <table style="width: 100%; border-collapse: collapse; color: white;">
+                        <thead style="position: sticky; top: 0; background: var(--bg-card, #1a1a2e); z-index: 1; box-shadow: 0 1px 0 rgba(255,255,255,0.08);">
+                            <tr>
+                                <th style="padding: 14px 16px; text-align: left; font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: 1px; width: 50px;">#</th>
+                                <th style="padding: 14px 16px; text-align: left; font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: 1px;">Ta'minotchi</th>
+                                <th style="padding: 14px 16px; text-align: right; font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: 1px;">So'm</th>
+                                <th style="padding: 14px 16px; text-align: right; font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: 1px;">Dollar</th>
+                                <th style="padding: 14px 16px; text-align: center; font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: 1px; width: 90px;">Hujjatlar</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${shipperRows || '<tr><td colspan="5" style="padding: 60px; text-align: center; color: #6b7280;">📦 Ushbu davrda prixod yo\'q</td></tr>'}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        `;
+
+        overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+        const escHandler = (e) => {
+            if (e.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', escHandler); }
+        };
+        document.addEventListener('keydown', escHandler);
+        document.body.appendChild(overlay);
+    }
+
 }
 
 // Initialize app
 document.addEventListener('DOMContentLoaded', () => {
     window.app = new SalesDoctorApp();
 });
+
