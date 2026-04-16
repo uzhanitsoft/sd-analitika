@@ -455,6 +455,7 @@ class SalesDoctorApp {
                 .catch(e => console.error('Chart/Table xatosi:', e));
             this.loadDebtAndPaymentStats();
             this.loadKassaStats(CACHE_BASE_URL);
+            this.loadSupplierWidget(CACHE_BASE_URL);
 
         } catch (error) {
             console.error('❌ Server cache xatosi:', error);
@@ -2346,7 +2347,7 @@ class SalesDoctorApp {
             agents: { title: 'Agentlar', subtitle: 'Sotuvchilar ro\'yxati' },
             lowstock: { title: 'Buyurtma', subtitle: 'Kam qolgan mahsulotlar' },
             pricecheck: { title: 'Narx tekshirish', subtitle: 'Prixod narxlarini taqqoslash' },
-            reports: { title: 'Hisobotlar', subtitle: 'Tahlil va hisobotlar' }
+            reports: { title: 'Hisobotlar', subtitle: 'Tahlil va hisobotlar' },
         };
 
         const pageTitle = titles[section] || titles.dashboard;
@@ -2385,6 +2386,140 @@ class SalesDoctorApp {
             case 'reports':
                 document.getElementById('reportsSection')?.style.setProperty('display', 'block');
                 break;
+        }
+    }
+
+    // Public helper: sidebar widgeti yoki boshqa joydan section ochish
+    showSection(section) {
+        document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
+        const navItem = document.querySelector(`.nav-item[data-section="${section}"]`);
+        if (navItem) navItem.classList.add('active');
+        this.switchSection(section);
+    }
+
+    // Pastavshiklar bo'limini yuklash
+    async loadSuppliersSection() {
+        const tbody = document.getElementById('suppliersTableBody');
+        if (!tbody) return;
+        tbody.innerHTML = '<tr><td colspan="10" style="text-align:center; padding:40px; color:rgba(255,255,255,0.4);">Yuklanmoqda...</td></tr>';
+
+        try {
+            const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+            const BASE = isLocal ? 'http://localhost:3000' : 'https://sd-analitika-production.up.railway.app';
+
+            const res = await this.fetchWithTimeout(`${BASE}/api/cache/shipper-debts`, 8000);
+            const data = await res.json();
+
+            if (!data.status) {
+                tbody.innerHTML = `<tr><td colspan="10" style="text-align:center; padding:40px; color:#f87171;">${data.error || 'Ma\'lumot yuklanmadi'}</td></tr>`;
+                return;
+            }
+
+            const { shippers, totalCount, som, usd } = data.result;
+            this._supplierData = shippers;
+
+            // Summary cardlarni yangilash
+            const fmtSom = (n) => Math.round(n).toLocaleString('ru-RU');
+            const fmtUsd = (n) => (Math.round(n * 100) / 100).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+            const el = (id) => document.getElementById(id);
+
+            if (el('supplierSomWeOwe'))   el('supplierSomWeOwe').textContent   = fmtSom(som?.weOwe || 0);
+            if (el('supplierSomTheyOwe')) el('supplierSomTheyOwe').textContent = fmtSom(som?.theyOwe || 0);
+            if (el('supplierUsdWeOwe'))   el('supplierUsdWeOwe').textContent   = '$ ' + fmtUsd(usd?.weOwe || 0);
+            if (el('supplierUsdTheyOwe')) el('supplierUsdTheyOwe').textContent = '$ ' + fmtUsd(usd?.theyOwe || 0);
+            if (el('supplierTotalCount')) el('supplierTotalCount').textContent = totalCount;
+
+            // Dashboard widget (UZS qarzini ko'rsatamiz)
+            if (el('supplierTotalDebt')) el('supplierTotalDebt').textContent = this.formatCurrency(som?.weOwe || 0);
+            if (el('supplierCount'))     el('supplierCount').textContent = totalCount;
+
+            this.renderSupplierTable(shippers);
+        } catch (e) {
+            tbody.innerHTML = `<tr><td colspan="10" style="text-align:center; padding:40px; color:#f87171;">Xato: ${e.message}</td></tr>`;
+        }
+    }
+
+    renderSupplierTable(shippers) {
+        const tbody = document.getElementById('suppliersTableBody');
+        if (!tbody) return;
+
+        if (!shippers || shippers.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="10" style="text-align:center; padding:40px; color:rgba(255,255,255,0.4);">Ma\'lumot topilmadi</td></tr>';
+            return;
+        }
+
+        // So'm formatlash
+        const fmtS = (n) => {
+            if (!n && n !== 0) return '<span style="color:rgba(255,255,255,0.25);">—</span>';
+            const abs = Math.abs(n);
+            const formatted = Math.round(abs).toLocaleString('ru-RU');
+            const color = n < 0 ? '#f87171' : n > 0 ? '#4ade80' : 'rgba(255,255,255,0.5)';
+            return `<span style="color:${color}">${n < 0 ? '-' : ''}${formatted}</span>`;
+        };
+        // Dollar formatlash
+        const fmtD = (n) => {
+            if (!n && n !== 0) return '<span style="color:rgba(255,255,255,0.25);">—</span>';
+            if (n === 0) return '<span style="color:rgba(255,255,255,0.25);">0</span>';
+            const abs = Math.abs(n);
+            const formatted = (Math.round(abs * 100) / 100).toLocaleString('ru-RU', { minimumFractionDigits: 2 });
+            const color = n < 0 ? '#fbbf24' : '#34d399';
+            return `<span style="color:${color}">${n < 0 ? '-' : ''}${formatted}</span>`;
+        };
+        const plain = (n) => n ? Math.round(Math.abs(n)).toLocaleString('ru-RU') : '—';
+
+        tbody.innerHTML = shippers.map((s, i) => {
+            const sBal = s.som?.balanceEnd || 0;
+            const uBal = s.usd?.balanceEnd || 0;
+
+            // Umumiy status
+            const hasSomDebt = sBal < -1;
+            const hasUsdDebt = uBal < -0.01;
+            const statusColor = (hasSomDebt || hasUsdDebt) ? '#f87171' : '#4ade80';
+            const rowBg = (hasSomDebt || hasUsdDebt) ? 'rgba(239,68,68,0.03)' : 'transparent';
+
+            return `
+            <tr style="background:${rowBg};">
+                <td style="color:rgba(255,255,255,0.4); font-size:12px;">${i + 1}</td>
+                <td style="font-weight:600; color:${statusColor};">${s.name}</td>
+                <!-- UZS ustunlari -->
+                <td style="text-align:right; font-size:13px;">${fmtS(s.som?.balanceStart)}</td>
+                <td style="text-align:right; font-size:13px;">${fmtS(s.som?.weOwe)}</td>
+                <td style="text-align:right; font-size:13px;">${fmtS(s.som?.theyClosed)}</td>
+                <td style="text-align:right; font-size:13px; font-weight:700;">${fmtS(sBal)}</td>
+                <!-- USD ustunlari -->
+                <td style="text-align:right; font-size:13px;">${fmtD(s.usd?.balanceStart)}</td>
+                <td style="text-align:right; font-size:13px;">${fmtD(s.usd?.weOwe)}</td>
+                <td style="text-align:right; font-size:13px;">${fmtD(s.usd?.theyClosed)}</td>
+                <td style="text-align:right; font-size:13px; font-weight:700;">${fmtD(uBal)}</td>
+            </tr>`;
+        }).join('');
+    }
+
+    filterSuppliers(query) {
+        if (!this._supplierData) return;
+        const q = query.toLowerCase().trim();
+        const filtered = q ? this._supplierData.filter(s => s.name.toLowerCase().includes(q)) : this._supplierData;
+        this.renderSupplierTable(filtered);
+    }
+
+    async refreshSupplierDebts() {
+        const btn = document.getElementById('refreshSupplierBtn');
+        if (btn) { btn.disabled = true; btn.style.opacity = '0.6'; }
+        try {
+            const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+            const BASE = isLocal ? 'http://localhost:3000' : 'https://sd-analitika-production.up.railway.app';
+            const res = await fetch(`${BASE}/api/shipper-debts/refresh`, { method: 'POST' });
+            const data = await res.json();
+            if (data.status) {
+                this.showToast('success', 'Yangilandi', `${data.count} ta pastavshik ma'lumoti yangilandi`);
+                await this.loadSuppliersSection();
+            } else {
+                this.showToast('error', 'Xato', data.error || 'Yangilab bo\'lmadi');
+            }
+        } catch(e) {
+            this.showToast('error', 'Xato', e.message);
+        } finally {
+            if (btn) { btn.disabled = false; btn.style.opacity = '1'; }
         }
     }
 
@@ -5591,9 +5726,213 @@ class SalesDoctorApp {
         document.body.appendChild(overlay);
     }
 
-}
 
 // Initialize app
+
+// ============================================================
+    // PASTAVSHIKLAR QARZI - Widget va Modal
+    // ============================================================
+    async loadSupplierWidget(baseUrl) {
+        try {
+            const res = await this.fetchWithTimeout(`${baseUrl}/api/cache/shipper-debts`, 8000);
+            const data = await res.json();
+            if (!data.status || !data.result) return;
+
+            this._supplierData = data.result;
+
+            const { som, usd } = data.result;
+            const fmtS = (n) => Math.round(n).toLocaleString('ru-RU');
+            const fmtD = (n) => (Math.round(n * 100) / 100).toLocaleString('ru-RU', { minimumFractionDigits: 2 });
+
+            // Dashboard widget yangilash
+            const debtEl = document.getElementById('supplierTotalDebt');
+            const usdEl  = document.getElementById('supplierUsdDebt');
+            if (debtEl) debtEl.textContent = fmtS(som?.weOwe || 0);
+            if (usdEl)  usdEl.textContent  = '$ ' + fmtD(usd?.weOwe || 0);
+        } catch(e) {
+            console.error('Supplier widget xatosi:', e.message);
+        }
+    }
+
+    openSupplierModal() {
+        const data = this._supplierData;
+        if (!data) {
+            // Data yo'q - yuklaymiz
+            const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+            const BASE = isLocal ? 'http://localhost:3000' : 'https://sd-analitika-production.up.railway.app';
+            this.loadSupplierWidget(BASE).then(() => this.openSupplierModal());
+            return;
+        }
+
+        const { shippers = [], som = {}, usd = {}, totalCount = 0 } = data;
+        const fmtS = (n) => {
+            if (!n && n !== 0) return '<span style="color:rgba(255,255,255,0.2);">—</span>';
+            const abs = Math.abs(n);
+            const color = n < 0 ? '#f87171' : n > 0 ? '#4ade80' : 'rgba(255,255,255,0.4)';
+            return `<span style="color:${color}">${n < 0 ? '-' : ''}${Math.round(abs).toLocaleString('ru-RU')}</span>`;
+        };
+        const fmtD = (n) => {
+            if (!n && n !== 0) return '<span style="color:rgba(255,255,255,0.2);">—</span>';
+            if (Math.abs(n) < 0.001) return '<span style="color:rgba(255,255,255,0.25);">0</span>';
+            const abs = Math.abs(n);
+            const color = n < 0 ? '#fbbf24' : '#34d399';
+            const formatted = (Math.round(abs * 100) / 100).toLocaleString('ru-RU', { minimumFractionDigits: 2 });
+            return `<span style="color:${color}">${n < 0 ? '-' : ''}${formatted}</span>`;
+        };
+
+        const rows = shippers.map((s, i) => {
+            const sBal = s.som?.balanceEnd || 0;
+            const uBal = s.usd?.balanceEnd || 0;
+            const hasDebt = sBal < -1 || uBal < -0.01;
+            return `<tr style="background:${hasDebt ? 'rgba(239,68,68,0.04)' : 'transparent'}">
+                <td style="color:rgba(255,255,255,0.35);font-size:12px;padding:8px 6px;">${i+1}</td>
+                <td style="font-weight:600;color:${hasDebt ? '#f87171':'#e2e8f0'};padding:8px 6px;">${s.name}</td>
+                <td style="text-align:right;padding:8px 6px;font-size:13px;">${fmtS(s.som?.balanceStart)}</td>
+                <td style="text-align:right;padding:8px 6px;font-size:13px;">${fmtS(s.som?.weOwe)}</td>
+                <td style="text-align:right;padding:8px 6px;font-size:13px;">${fmtS(s.som?.theyClosed)}</td>
+                <td style="text-align:right;padding:8px 6px;font-size:13px;font-weight:700;">${fmtS(sBal)}</td>
+                <td style="text-align:right;padding:8px 6px;font-size:13px;">${fmtD(s.usd?.balanceStart)}</td>
+                <td style="text-align:right;padding:8px 6px;font-size:13px;">${fmtD(s.usd?.weOwe)}</td>
+                <td style="text-align:right;padding:8px 6px;font-size:13px;">${fmtD(s.usd?.theyClosed)}</td>
+                <td style="text-align:right;padding:8px 6px;font-size:13px;font-weight:700;">${fmtD(uBal)}</td>
+            </tr>`;
+        }).join('');
+
+        const fmtSumS = (n) => Math.round(n).toLocaleString('ru-RU');
+        const fmtSumD = (n) => (Math.round(n*100)/100).toLocaleString('ru-RU', {minimumFractionDigits:2});
+
+        const overlay = document.createElement('div');
+        overlay.className = 'detail-overlay';
+        overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.75);z-index:1000;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(6px);';
+        
+        overlay.innerHTML = `
+        <div style="background:linear-gradient(135deg,#1a1a2e 0%,#16213e 50%,#0f3460 100%);border:1px solid rgba(168,85,247,0.3);border-radius:20px;padding:28px;width:95%;max-width:1300px;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 25px 80px rgba(0,0,0,0.6);">
+            <!-- Header -->
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px;flex-shrink:0;">
+                <div>
+                    <div style="display:flex;align-items:center;gap:12px;margin-bottom:6px;">
+                        <div style="width:40px;height:40px;border-radius:12px;background:linear-gradient(135deg,#7c3aed,#a855f7);display:flex;align-items:center;justify-content:center;">
+                            <svg viewBox="0 0 24 24" fill="none" width="20" height="20">
+                                <path d="M20 7H4a2 2 0 00-2 2v10a2 2 0 002 2h16a2 2 0 002-2V9a2 2 0 00-2-2z" stroke="white" stroke-width="2"/>
+                                <path d="M16 7V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v2" stroke="white" stroke-width="2" stroke-linecap="round"/>
+                            </svg>
+                        </div>
+                        <div>
+                            <h2 style="margin:0;font-size:20px;color:#fff;">Pastavshiklar Qarzdorligi</h2>
+                            <p style="margin:0;font-size:13px;color:rgba(255,255,255,0.5);">Oborot po pastavshikam — ${totalCount} ta kontragent</p>
+                        </div>
+                    </div>
+                </div>
+                <div style="display:flex;gap:10px;align-items:center;">
+                    <input type="text" placeholder="🔍 Qidirish..." id="supplierModalSearch"
+                        style="background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);color:#fff;padding:8px 14px;border-radius:10px;font-size:13px;outline:none;width:200px;"
+                        oninput="window._filterSupplierModal(this.value)">
+                    <button onclick="window._refreshSupplierModal()" 
+                        style="background:rgba(168,85,247,0.2);border:1px solid rgba(168,85,247,0.4);color:#c084fc;padding:8px 14px;border-radius:10px;cursor:pointer;font-size:13px;">
+                        ↻ Yangilash
+                    </button>
+                    <button onclick="this.closest('.detail-overlay').remove()"
+                        style="background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);color:rgba(255,255,255,0.7);width:36px;height:36px;border-radius:10px;cursor:pointer;font-size:18px;display:flex;align-items:center;justify-content:center;">×</button>
+                </div>
+            </div>
+
+            <!-- Summary qatorlari -->
+            <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px;flex-shrink:0;">
+                <div style="background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.25);border-radius:12px;padding:14px;">
+                    <div style="font-size:11px;color:rgba(255,255,255,0.5);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">Biz qarzimiz (so'm)</div>
+                    <div style="font-size:18px;font-weight:700;color:#f87171;">${fmtSumS(som.weOwe || 0)}</div>
+                </div>
+                <div style="background:rgba(74,222,128,0.08);border:1px solid rgba(74,222,128,0.2);border-radius:12px;padding:14px;">
+                    <div style="font-size:11px;color:rgba(255,255,255,0.5);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">Ular bizga qarzdor (so'm)</div>
+                    <div style="font-size:18px;font-weight:700;color:#4ade80;">${fmtSumS(som.theyOwe || 0)}</div>
+                </div>
+                <div style="background:rgba(251,191,36,0.08);border:1px solid rgba(251,191,36,0.2);border-radius:12px;padding:14px;">
+                    <div style="font-size:11px;color:rgba(255,255,255,0.5);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">Biz qarzimiz ($)</div>
+                    <div style="font-size:18px;font-weight:700;color:#fbbf24;">$ ${fmtSumD(usd.weOwe || 0)}</div>
+                </div>
+                <div style="background:rgba(52,211,153,0.08);border:1px solid rgba(52,211,153,0.2);border-radius:12px;padding:14px;">
+                    <div style="font-size:11px;color:rgba(255,255,255,0.5);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">Ular bizga qarzdor ($)</div>
+                    <div style="font-size:18px;font-weight:700;color:#34d399;">$ ${fmtSumD(usd.theyOwe || 0)}</div>
+                </div>
+            </div>
+
+            <!-- Jadval -->
+            <div style="overflow-y:auto;flex:1;border-radius:12px;border:1px solid rgba(255,255,255,0.08);">
+                <table id="supplierModalTable" style="width:100%;border-collapse:collapse;font-size:13px;">
+                    <thead style="position:sticky;top:0;z-index:2;">
+                        <tr style="background:rgba(15,20,40,0.95);backdrop-filter:blur(10px);">
+                            <th style="padding:10px 6px;text-align:left;color:rgba(255,255,255,0.5);font-weight:500;font-size:11px;border-bottom:1px solid rgba(255,255,255,0.08);">#</th>
+                            <th style="padding:10px 6px;text-align:left;color:rgba(255,255,255,0.5);font-weight:500;font-size:11px;border-bottom:1px solid rgba(255,255,255,0.08);">PASTAVSHIK</th>
+                            <th colspan="4" style="padding:10px 6px;text-align:center;color:#60a5fa;font-weight:600;font-size:11px;border-bottom:1px solid rgba(255,255,255,0.08);background:rgba(96,165,250,0.05);">SO'M (UZS)</th>
+                            <th colspan="4" style="padding:10px 6px;text-align:center;color:#fbbf24;font-weight:600;font-size:11px;border-bottom:1px solid rgba(255,255,255,0.08);background:rgba(251,191,36,0.05);">DOLLAR (USD)</th>
+                        </tr>
+                        <tr style="background:rgba(10,15,35,0.95);">
+                            <th style="padding:6px;border-bottom:1px solid rgba(255,255,255,0.06);"></th>
+                            <th style="padding:6px;border-bottom:1px solid rgba(255,255,255,0.06);"></th>
+                            <th style="padding:6px;text-align:right;color:rgba(96,165,250,0.7);font-weight:400;font-size:11px;border-bottom:1px solid rgba(255,255,255,0.06);">Davr boshi</th>
+                            <th style="padding:6px;text-align:right;color:rgba(248,113,113,0.7);font-weight:400;font-size:11px;border-bottom:1px solid rgba(255,255,255,0.06);">Biz qarzimiz</th>
+                            <th style="padding:6px;text-align:right;color:rgba(74,222,128,0.7);font-weight:400;font-size:11px;border-bottom:1px solid rgba(255,255,255,0.06);">Ular yopdi</th>
+                            <th style="padding:6px;text-align:right;color:rgba(255,255,255,0.7);font-weight:600;font-size:11px;border-bottom:1px solid rgba(255,255,255,0.06);">Balans</th>
+                            <th style="padding:6px;text-align:right;color:rgba(251,191,36,0.7);font-weight:400;font-size:11px;border-bottom:1px solid rgba(255,255,255,0.06);">Davr boshi</th>
+                            <th style="padding:6px;text-align:right;color:rgba(251,146,60,0.7);font-weight:400;font-size:11px;border-bottom:1px solid rgba(255,255,255,0.06);">Biz qarzimiz</th>
+                            <th style="padding:6px;text-align:right;color:rgba(52,211,153,0.7);font-weight:400;font-size:11px;border-bottom:1px solid rgba(255,255,255,0.06);">Ular yopdi</th>
+                            <th style="padding:6px;text-align:right;color:rgba(255,255,255,0.7);font-weight:600;font-size:11px;border-bottom:1px solid rgba(255,255,255,0.06);">Balans</th>
+                        </tr>
+                    </thead>
+                    <tbody id="supplierModalTbody">${rows}</tbody>
+                </table>
+            </div>
+        </div>`;
+
+        document.body.appendChild(overlay);
+
+        // Global filter funksiyasi
+        const allShippers = shippers;
+        window._filterSupplierModal = (q) => {
+            const filtered = q ? allShippers.filter(s => s.name.toLowerCase().includes(q.toLowerCase())) : allShippers;
+            const tbody = document.getElementById('supplierModalTbody');
+            if (!tbody) return;
+            tbody.innerHTML = filtered.map((s, i) => {
+                const sBal = s.som?.balanceEnd || 0;
+                const uBal = s.usd?.balanceEnd || 0;
+                const hasDebt = sBal < -1 || uBal < -0.01;
+                return `<tr style="background:${hasDebt ? 'rgba(239,68,68,0.04)' : 'transparent'}">
+                    <td style="color:rgba(255,255,255,0.35);font-size:12px;padding:8px 6px;">${i+1}</td>
+                    <td style="font-weight:600;color:${hasDebt ? '#f87171':'#e2e8f0'};padding:8px 6px;">${s.name}</td>
+                    <td style="text-align:right;padding:8px 6px;font-size:13px;">${fmtS(s.som?.balanceStart)}</td>
+                    <td style="text-align:right;padding:8px 6px;font-size:13px;">${fmtS(s.som?.weOwe)}</td>
+                    <td style="text-align:right;padding:8px 6px;font-size:13px;">${fmtS(s.som?.theyClosed)}</td>
+                    <td style="text-align:right;padding:8px 6px;font-size:13px;font-weight:700;">${fmtS(sBal)}</td>
+                    <td style="text-align:right;padding:8px 6px;font-size:13px;">${fmtD(s.usd?.balanceStart)}</td>
+                    <td style="text-align:right;padding:8px 6px;font-size:13px;">${fmtD(s.usd?.weOwe)}</td>
+                    <td style="text-align:right;padding:8px 6px;font-size:13px;">${fmtD(s.usd?.theyClosed)}</td>
+                    <td style="text-align:right;padding:8px 6px;font-size:13px;font-weight:700;">${fmtD(uBal)}</td>
+                </tr>`;
+            }).join('');
+        };
+
+        window._refreshSupplierModal = async () => {
+            const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+            const BASE = isLocal ? 'http://localhost:3000' : 'https://sd-analitika-production.up.railway.app';
+            try {
+                const r = await fetch(`${BASE}/api/shipper-debts/refresh`, { method: 'POST' });
+                const d = await r.json();
+                if (d.status) {
+                    overlay.remove();
+                    await this.loadSupplierWidget(BASE);
+                    this.openSupplierModal();
+                }
+            } catch(e) { console.error(e); }
+        };
+
+        // ESC bilan yopish
+        const esc = (e) => { if (e.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', esc); } };
+        document.addEventListener('keydown', esc);
+        overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+    }
+
+}
 document.addEventListener('DOMContentLoaded', () => {
     window.app = new SalesDoctorApp();
+
 });

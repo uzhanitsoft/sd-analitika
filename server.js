@@ -46,6 +46,7 @@ let serverCache = {
     agents: null,           // Agentlar
     transactions: null,     // Web panel transactions (SROK bilan!)
     catalogPrices: null,    // Web paneldan barcha narxlar (product -> priceType -> price)
+    shipperDebts: null,     // Pastavshiklar qarzdorligi (oborot po pastavshikam)
     stats: null,            // Hisoblangan statistika
     lastUpdate: null,       // Oxirgi yangilanish
     isLoading: false,       // Yuklanish holati
@@ -305,6 +306,76 @@ async function fetchCatalogPrices() {
     }
 }
 
+// 🏭 Web paneldan pastavshiklar qarzdorligini olish (UZS va USD alohida)
+async function fetchShipperDebts() {
+    try {
+        const { serverUrl } = CACHE_CONFIG.API_CREDENTIALS;
+        const webBase = `https://${serverUrl}`;
+        const cs = Object.keys(webSessionCookies).map(k => k + '=' + webSessionCookies[k]).join('; ');
+        const headers = {
+            'Cookie': cs,
+            'User-Agent': 'Mozilla/5.0',
+            'X-Requested-With': 'XMLHttpRequest',
+            'Accept': 'application/json, */*',
+            'Referer': webBase + '/clients/shipperFinans/report'
+        };
+
+        // Session ochish
+        await fetch(webBase + '/clients/shipperFinans/report', { headers: { 'Cookie': cs, 'User-Agent': 'Mozilla/5.0' } });
+
+        // Helper: ma'lum currency filter bilan ma'lumot olish
+        const fetchWithCurrency = async (currencyParams, label) => {
+            const url = `${webBase}/clients/shipperFinans/AjaxReport?${currencyParams}`;
+            const res = await fetch(url, { headers });
+            const body = await res.text();
+            let json;
+            try { json = JSON.parse(body); } catch(e) {
+                console.error(`   ShipperDebts ${label} parse xatosi:`, body.substring(0, 100));
+                return [];
+            }
+            return json.data || [];
+        };
+
+        // UZS: Nalichniy (d0_2) + Beznalichniy (d0_3) so'm
+        const somData = await fetchWithCurrency('currency%5B%5D=d0_2&currency%5B%5D=d0_3', 'SOM');
+        // USD: Dollar USA (d0_4)
+        const usdData = await fetchWithCurrency('currency%5B%5D=d0_4', 'USD');
+
+        const parseNum = (val) => (val && val !== 0) ? parseFloat(String(val)) || 0 : 0;
+
+        // Som ma'lumotlarini map ga olish (name -> row) - ID bo'yicha birlashtirish uchun
+        const somMap = {};
+        somData.forEach(row => {
+            const id = String(row[5] || '');
+            const name = String(row[0] || '').trim();
+            if (name) somMap[id] = { id, name, som: { balanceStart: parseNum(row[1]), weOwe: parseNum(row[2]), theyClosed: parseNum(row[3]), balanceEnd: parseNum(row[4]) } };
+        });
+
+        // USD ma'lumotlarini map ga olish
+        const usdMap = {};
+        usdData.forEach(row => {
+            const id = String(row[5] || '');
+            const name = String(row[0] || '').trim();
+            if (name) usdMap[id] = { id, name, usd: { balanceStart: parseNum(row[1]), weOwe: parseNum(row[2]), theyClosed: parseNum(row[3]), balanceEnd: parseNum(row[4]) } };
+        });
+
+        // Barcha pastavshiklarni birlashtirish
+        const allIds = new Set([...Object.keys(somMap), ...Object.keys(usdMap)]);
+        const shippers = Array.from(allIds).map(id => {
+            const som = somMap[id]?.som || { balanceStart: 0, weOwe: 0, theyClosed: 0, balanceEnd: 0 };
+            const usd = usdMap[id]?.usd || { balanceStart: 0, weOwe: 0, theyClosed: 0, balanceEnd: 0 };
+            const name = somMap[id]?.name || usdMap[id]?.name || 'Noma\'lum';
+            return { id, name, som, usd };
+        }).filter(s => s.name && s.name !== 'Noma\'lum');
+
+        console.log(`   ${shippers.length} ta pastavshik (UZS: ${somData.length}, USD: ${usdData.length})`);
+        return shippers;
+    } catch (error) {
+        console.error('   ShipperDebts fetch xatosi:', error.message);
+        return null;
+    }
+}
+
 // API so'rov helper
 async function apiRequest(method, params = {}, retried = false) {
     const { serverUrl, userId, token } = CACHE_CONFIG.API_CREDENTIALS;
@@ -513,6 +584,12 @@ async function refreshCache() {
                 serverCache.catalogPrices = cats;
                 console.log('   Narxlar: ' + Object.keys((cats && cats.productPrices) || {}).length);
             } catch(e) { console.log('   WARN Catalog: ' + e.message); }
+
+            try {
+                const shipperDebt = await withTimeout(fetchShipperDebts(), 60000, 'shipperDebts');
+                serverCache.shipperDebts = shipperDebt;
+                console.log('   Pastavshiklar: ' + ((shipperDebt && shipperDebt.length) || 0));
+            } catch(e) { console.log('   WARN ShipperDebts: ' + e.message); }
         } else {
             console.log('   WARN: Web login muvaffaqiyatsiz');
         }
@@ -1569,24 +1646,36 @@ app.get('/api/cache/prixod/:period', (req, res) => {
     const shipperMap = {};
 
     filteredPurchases.forEach(p => {
-        // Valyutani priceType nomiga qarab aniqlash
-        const priceTypeName = (p.priceType?.name || '').toLowerCase();
-        const isUSD = priceTypeName.includes('$') || priceTypeName.includes('dollar') || priceTypeName.includes('usd');
-
-        // Ombordagi mahsulotlar summasi (detail bo'yicha hisoblash)
+        // Detail mahsulotlaridan jami summa hisoblash
+        // SalesDoc da: price < 100 => USD, price >= 100 => UZS
         let docUZS = 0;
         let docUSD = 0;
 
-        // p.amount - hujjat jami summasi
-        const docAmount = parseFloat(p.amount) || 0;
+        (p.detail || []).forEach(item => {
+            const price = parseFloat(item.price) || 0;
+            const qty   = parseFloat(item.quantity) || 1;
+            if (price <= 0) return;
 
-        if (isUSD) {
-            docUSD += docAmount;
-            totalUSD += docAmount;
-        } else {
-            docUZS += docAmount;
-            totalUZS += docAmount;
+            const itemTotal = price * qty;
+            if (price < 100) {
+                docUSD += itemTotal;
+            } else {
+                docUZS += itemTotal;
+            }
+        });
+
+        // detail bo'sh bo'lsa — hujjat darajasidagi amount/summa maydonlarini tekshirish
+        if (docUZS === 0 && docUSD === 0) {
+            const fallback = parseFloat(p.amount || p.summa || p.totalSumma || 0);
+            if (fallback > 0) {
+                const priceTypeName = (p.priceType?.name || '').toLowerCase();
+                const isUSD = priceTypeName.includes('$') || priceTypeName.includes('dollar') || priceTypeName.includes('usd');
+                if (isUSD) docUSD = fallback; else docUZS = fallback;
+            }
         }
+
+        totalUZS += docUZS;
+        totalUSD += docUSD;
 
         // Ta'minotchi bo'yicha guruhlash
         const shipperId = p.shipper?.SD_id || p.shipper?.CS_id || 'unknown';
@@ -1607,8 +1696,8 @@ app.get('/api/cache/prixod/:period', (req, res) => {
         shipperMap[shipperId].count++;
         shipperMap[shipperId].docs.push({
             date: (p.date || '').substring(0, 10),
-            amount: docAmount,
-            currency: isUSD ? 'USD' : 'UZS',
+            uzs: Math.round(docUZS),
+            usd: Math.round(docUSD * 100) / 100,
             itemCount: (p.detail || []).length
         });
     });
@@ -1627,6 +1716,62 @@ app.get('/api/cache/prixod/:period', (req, res) => {
         },
         lastUpdate: serverCache.lastUpdate
     });
+});
+
+
+// ============================================================
+// Pastavshiklar Qarzdorligi (Oborot po pastavshikam)
+// ============================================================
+app.get('/api/cache/shipper-debts', (req, res) => {
+    if (!serverCache.shipperDebts) {
+        return res.json({ status: false, error: "Pastavshiklar ma'lumoti hali yuklanmadi. Server background jarayoni tugaguncha kuting (10-15 min)." });
+    }
+    const shippers = serverCache.shipperDebts;
+
+    // UZS bo'yicha umumiy hisob
+    let somWeOwe = 0, somTheyOwe = 0;
+    // USD bo'yicha umumiy hisob
+    let usdWeOwe = 0, usdTheyOwe = 0;
+
+    shippers.forEach(s => {
+        const somBal = s.som?.balanceEnd || 0;
+        if (somBal < 0) somWeOwe += Math.abs(somBal);
+        else somTheyOwe += somBal;
+
+        const usdBal = s.usd?.balanceEnd || 0;
+        if (usdBal < 0) usdWeOwe += Math.abs(usdBal);
+        else usdTheyOwe += usdBal;
+    });
+
+    res.json({
+        status: true,
+        result: {
+            shippers,
+            totalCount: shippers.length,
+            som: { weOwe: Math.round(somWeOwe), theyOwe: Math.round(somTheyOwe) },
+            usd: { weOwe: Math.round(usdWeOwe * 100) / 100, theyOwe: Math.round(usdTheyOwe * 100) / 100 }
+        },
+        lastUpdate: serverCache.lastUpdate
+    });
+});
+
+// Pastavshiklar qarzini zudlik bilan yangilash (force refresh)
+app.post('/api/shipper-debts/refresh', async (req, res) => {
+    try {
+        if (!webSessionCookies || Object.keys(webSessionCookies).length === 0) {
+            const ok = await webLogin();
+            if (!ok) return res.json({ status: false, error: 'Web panel login muvaffaqiyatsiz' });
+        }
+        const data = await fetchShipperDebts();
+        if (data) {
+            serverCache.shipperDebts = data;
+            res.json({ status: true, count: data.length, message: "Pastavshiklar ma'lumoti yangilandi" });
+        } else {
+            res.json({ status: false, error: "Ma'lumot olishda xato" });
+        }
+    } catch(e) {
+        res.json({ status: false, error: e.message });
+    }
 });
 
 // Kassa - period bo'yicha to'lovlar statistikasi

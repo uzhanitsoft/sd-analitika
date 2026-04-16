@@ -2107,17 +2107,24 @@ app.get('/api/cache/prixod/:period', (req, res) => {
     const shipperMap = {};
 
     filteredPurchases.forEach(p => {
-        const priceTypeName = (p.priceType?.name || '').toLowerCase();
-        const isUSD = priceTypeName.includes('$') || priceTypeName.includes('dollar') || priceTypeName.includes('usd');
-
-        const docAmount = parseFloat(p.amount) || 0;
+        // detail mahsulotlar orqali jami hisoblash (Narx tekshirish bilan bir xil usul)
         let docUZS = 0, docUSD = 0;
 
-        if (isUSD) { docUSD = docAmount; totalUSD += docAmount; }
-        else { docUZS = docAmount; totalUZS += docAmount; }
+        (p.detail || []).forEach(item => {
+            const price = parseFloat(item.price) || 0;
+            const qty   = parseFloat(item.quantity) || 0;
+            if (price <= 0 || qty <= 0) return;
+            const sum = price * qty;
+            // SalesDoc prixod: price < 100 => USD, >= 100 => UZS (so'm)
+            if (price < 100) docUSD += sum;
+            else             docUZS += sum;
+        });
 
-        const shipperId = p.shipper?.SD_id || p.shipper?.CS_id || 'unknown';
-        const shipperName = p.shipper?.name || "Noma'lum ta'minotchi";
+        totalUZS += docUZS;
+        totalUSD += docUSD;
+
+        const shipperId   = p.shipper?.SD_id || p.shipper?.CS_id || 'unknown';
+        const shipperName = p.shipper?.name   || "Noma'lum ta'minotchi";
 
         if (!shipperMap[shipperId]) {
             shipperMap[shipperId] = { name: shipperName, totalUZS: 0, totalUSD: 0, count: 0, docs: [] };
@@ -2128,8 +2135,8 @@ app.get('/api/cache/prixod/:period', (req, res) => {
         shipperMap[shipperId].count++;
         shipperMap[shipperId].docs.push({
             date: (p.date || '').substring(0, 10),
-            amount: docAmount,
-            currency: isUSD ? 'USD' : 'UZS',
+            uzs: Math.round(docUZS),
+            usd: Math.round(docUSD * 100) / 100,
             itemCount: (p.detail || []).length
         });
     });

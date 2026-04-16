@@ -5679,9 +5679,9 @@ class SalesDoctorApp {
             const hasDocs = (shipper.docs || []).length > 0;
 
             const docRows = (shipper.docs || []).map((doc, j) => {
-                const docAmountStr = doc.currency === 'USD'
-                    ? '$' + Math.round(doc.amount).toLocaleString()
-                    : Math.round(doc.amount).toLocaleString('ru-RU') + ' so\'m';
+                const uzsStr = doc.uzs > 0 ? doc.uzs.toLocaleString('ru-RU') + ' so\'m' : '';
+                const usdStr = doc.usd > 0 ? '$' + doc.usd.toLocaleString() : '';
+                const docAmountStr = usdStr && uzsStr ? `${usdStr} + ${uzsStr}` : (usdStr || uzsStr || '—');
                 return `
                     <tr id="prixod-docs-${i}-${j}" style="display: none; background: rgba(245,158,11,0.05); border-bottom: 1px solid rgba(255,255,255,0.04);">
                         <td style="padding: 8px 16px 8px 44px; color: #6b7280; font-size: 12px;">${j + 1}</td>
@@ -5766,6 +5766,135 @@ class SalesDoctorApp {
                         </thead>
                         <tbody>
                             ${shipperRows || '<tr><td colspan="5" style="padding: 60px; text-align: center; color: #6b7280;">📦 Ushbu davrda prixod yo\'q</td></tr>'}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        `;
+
+        overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+        const escHandler = (e) => {
+            if (e.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', escHandler); }
+        };
+        document.addEventListener('keydown', escHandler);
+        document.body.appendChild(overlay);
+    }
+
+    // 💸 Rasxodlar modal
+    openRasxodModal() {
+        const data = this._rasxodData;
+        if (!data) {
+            this.showToast && this.showToast('warning', 'Ma\'lumot yo\'q', 'Rasxodlar hali yuklanmadi');
+            alert('Rasxodlar ma\'lumotlari hali yuklanmadi');
+            return;
+        }
+
+        const overlay = document.createElement('div');
+        overlay.className = 'detail-overlay';
+        overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);z-index:1000;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(5px);';
+
+        const periodLabels = { 'today': 'Bugun', 'yesterday': 'Kecha', 'week': 'Hafta', 'month': 'Oy', 'year': 'Yil' };
+        const periodLabel = this.currentPeriod === 'custom' && this.customStartDate
+            ? `${this.customStartDate} — ${this.customEndDate}`
+            : (periodLabels[this.currentPeriod] || this.currentPeriod);
+
+        // Kategoriyalarni parent bo'yicha guruhlash
+        const parentGroups = {};
+        (data.categories || []).forEach(cat => {
+            const parentName = cat.parent || cat.name;
+            if (!parentGroups[parentName]) {
+                parentGroups[parentName] = { uzs: 0, usd: 0, count: 0, children: [] };
+            }
+            parentGroups[parentName].uzs += cat.totalUZS || 0;
+            parentGroups[parentName].usd += cat.totalUSD || 0;
+            parentGroups[parentName].count += cat.count || 0;
+            if (cat.name.includes(' | ')) {
+                parentGroups[parentName].children.push(cat);
+            }
+        });
+
+        const catRows = Object.entries(parentGroups).sort((a, b) =>
+            (b[1].uzs + b[1].usd * 12200) - (a[1].uzs + a[1].usd * 12200)
+        ).map(([parentName, g], i) => {
+            const uzsStr = g.uzs > 0 ? Math.round(g.uzs).toLocaleString('ru-RU') : '—';
+            const usdStr = g.usd > 0 ? '$' + Math.round(g.usd).toLocaleString() : '—';
+            const hasChildren = g.children.length > 0;
+
+            const childRows = g.children.map((child, j) => {
+                const cName = child.name.includes(' | ') ? child.name.split(' | ').slice(1).join(' | ') : child.name;
+                const cuzsStr = child.totalUZS > 0 ? Math.round(child.totalUZS).toLocaleString('ru-RU') : '—';
+                const cusdStr = child.totalUSD > 0 ? '$' + Math.round(child.totalUSD).toLocaleString() : '—';
+                return `
+                    <tr id="rasxod-child-${i}" style="display:none; background: rgba(239,68,68,0.04); border-bottom: 1px solid rgba(255,255,255,0.04);">
+                        <td style="padding: 10px 16px 10px 40px; color: #6b7280; font-size: 12px;">${j + 1}</td>
+                        <td style="padding: 10px 16px; font-size: 13px; color: #e2e8f0; font-weight:500;">👤 ${cName}</td>
+                        <td style="padding: 10px 16px; text-align: right; color: #ef4444; font-size: 13px; font-weight:600;">${cuzsStr}</td>
+                        <td style="padding: 10px 16px; text-align: right; color: #f97316; font-size: 13px; font-weight:600;">${cusdStr}</td>
+                        <td style="padding: 10px 16px; text-align: center; color: #6b7280; font-size: 12px;">${child.count || 0} ta</td>
+                    </tr>`;
+            }).join('');
+
+            return `
+                <tr style="border-bottom: 1px solid rgba(255,255,255,0.06); cursor:${hasChildren ? 'pointer' : 'default'}; transition: background 0.2s;"
+                    onmouseenter="this.style.background='rgba(255,255,255,0.04)'"
+                    onmouseleave="this.style.background='transparent'"
+                    ${hasChildren ? `onclick="const rows=document.querySelectorAll('#rasxod-child-${i}'); const arrow=document.getElementById('rasxod-arrow-${i}'); rows.forEach(r=>{r.style.display=r.style.display==='none'?'':'none'}); arrow.textContent=arrow.textContent==='▶'?'▼':'▶';"` : ''}>
+                    <td style="padding: 14px 16px; color: #9ca3af;">${i + 1}</td>
+                    <td style="padding: 14px 16px; font-weight: 600; color: #f1f5f9;">
+                        ${hasChildren ? `<span id="rasxod-arrow-${i}" style="color:#6b7280;margin-right:8px;font-size:10px;">▶</span>` : '<span style="width:18px;display:inline-block;"></span>'}
+                        🏷️ ${parentName}
+                    </td>
+                    <td style="padding: 14px 16px; text-align: right; color: #ef4444; font-weight: 700;">${uzsStr}</td>
+                    <td style="padding: 14px 16px; text-align: right; color: #f97316; font-weight: 700;">${usdStr}</td>
+                    <td style="padding: 14px 16px; text-align: center; color: #9ca3af; font-weight: 500;">${g.count}</td>
+                </tr>
+                ${childRows}`;
+        }).join('');
+
+        overlay.innerHTML = `
+            <div style="background: var(--bg-card, #1a1a2e); border-radius: 20px; width: 95%; max-width: 1000px; max-height: 95vh; overflow: hidden; border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 25px 50px rgba(0,0,0,0.5); display: flex; flex-direction: column;">
+                <div style="padding: 24px 28px; border-bottom: 1px solid rgba(255,255,255,0.08); display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;">
+                    <div>
+                        <h2 style="margin: 0; font-size: 24px; color: white;">💸 Rasxodlar</h2>
+                        <p style="margin: 4px 0 0; color: #9ca3af; font-size: 14px;">${periodLabel} • ${data.totalCount || 0} ta xarajat • Kategoriya ustiga bosing → tafsilot</p>
+                    </div>
+                    <button onclick="this.closest('.detail-overlay').remove()"
+                        style="background: rgba(255,255,255,0.1); border: none; color: white; width: 40px; height: 40px; border-radius: 12px; cursor: pointer; font-size: 20px; transition: background 0.2s;"
+                        onmouseenter="this.style.background='rgba(255,255,255,0.2)'"
+                        onmouseleave="this.style.background='rgba(255,255,255,0.1)'">✕</button>
+                </div>
+
+                <div style="padding: 16px 28px; display: flex; gap: 16px; border-bottom: 1px solid rgba(255,255,255,0.08); flex-shrink: 0;">
+                    <div style="flex: 1; background: rgba(239,68,68,0.1); border-radius: 14px; padding: 20px; border: 1px solid rgba(239,68,68,0.2);">
+                        <div style="font-size: 12px; color: #fca5a5; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px;">Jami So'm</div>
+                        <div style="font-size: 28px; font-weight: 800; color: #ef4444;">${Math.round(data.totalUZS || 0).toLocaleString('ru-RU')}</div>
+                        <div style="font-size: 12px; color: #6b7280; margin-top: 4px;">so'm</div>
+                    </div>
+                    <div style="flex: 1; background: rgba(249,115,22,0.1); border-radius: 14px; padding: 20px; border: 1px solid rgba(249,115,22,0.2);">
+                        <div style="font-size: 12px; color: #fdba74; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px;">Jami Dollar</div>
+                        <div style="font-size: 28px; font-weight: 800; color: #f97316;">$${Math.round(data.totalUSD || 0).toLocaleString()}</div>
+                        <div style="font-size: 12px; color: #6b7280; margin-top: 4px;">USD</div>
+                    </div>
+                    <div style="flex: 1; background: rgba(168,85,247,0.1); border-radius: 14px; padding: 20px; border: 1px solid rgba(168,85,247,0.2);">
+                        <div style="font-size: 12px; color: #d8b4fe; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px;">Kategoriyalar</div>
+                        <div style="font-size: 28px; font-weight: 800; color: #a855f7;">${Object.keys(parentGroups).length}</div>
+                        <div style="font-size: 12px; color: #6b7280; margin-top: 4px;">ta tur</div>
+                    </div>
+                </div>
+
+                <div style="overflow-y: auto; flex: 1;">
+                    <table style="width: 100%; border-collapse: collapse; color: white;">
+                        <thead style="position: sticky; top: 0; background: var(--bg-card, #1a1a2e); z-index: 1;">
+                            <tr style="border-bottom: 2px solid rgba(255,255,255,0.1);">
+                                <th style="padding: 14px 16px; text-align: left; font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: 1px; width: 50px;">#</th>
+                                <th style="padding: 14px 16px; text-align: left; font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: 1px;">Kategoriya</th>
+                                <th style="padding: 14px 16px; text-align: right; font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: 1px;">So'm</th>
+                                <th style="padding: 14px 16px; text-align: right; font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: 1px;">Dollar</th>
+                                <th style="padding: 14px 16px; text-align: center; font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: 1px; width: 80px;">Soni</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${catRows || '<tr><td colspan="5" style="padding: 40px; text-align: center; color: #6b7280;">Ma\'lumot yo\'q</td></tr>'}
                         </tbody>
                     </table>
                 </div>
