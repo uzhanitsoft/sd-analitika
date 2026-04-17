@@ -6156,6 +6156,70 @@ class SalesDoctorApp {
         document.body.appendChild(overlay);
     }
 
+    // ============ KASSA STATS (Pul Kirimlari widget) ============
+    async loadKassaStats(baseUrl) {
+        try {
+            const res = await this.fetchWithTimeout(`${baseUrl}/api/cache/kassa/${this.currentPeriod}`, 8000);
+            const data = await res.json();
+
+            if (data.status && data.result) {
+                const r = data.result;
+                const userRate = this.getUsdRate();
+                const kassaUZSEl = document.getElementById('kassaTotalUZS');
+                const kassaUSDEl = document.getElementById('kassaTotalUSD');
+
+                if (kassaUZSEl) kassaUZSEl.textContent = Math.round(r.totalUZS).toLocaleString('ru-RU');
+                if (kassaUSDEl) kassaUSDEl.textContent = '$' + Math.round(r.totalUSD).toLocaleString();
+
+                console.log(`💰 Kassa: ${Math.round(r.totalUZS).toLocaleString()} so'm, $${Math.round(r.totalUSD).toLocaleString()}`);
+            }
+        } catch (e) {
+            console.error('Kassa stats xatosi:', e.message);
+        }
+    }
+
+    // ============ RASXOD STATS (Rasxodlar widget) ============
+    async loadRasxodStats(baseUrl) {
+        try {
+            const res = await this.fetchWithTimeout(`${baseUrl}/api/cache/consumption/${this.currentPeriod}`, 8000);
+            const data = await res.json();
+
+            if (data.status && data.result) {
+                const r = data.result;
+                const rasxodUZSEl = document.getElementById('rasxodTotalUZS');
+                const rasxodUSDEl = document.getElementById('rasxodTotalUSD');
+
+                if (rasxodUZSEl) rasxodUZSEl.textContent = Math.round(r.totalUZS).toLocaleString('ru-RU');
+                if (rasxodUSDEl) rasxodUSDEl.textContent = '$' + Math.round(r.totalUSD).toLocaleString();
+
+                console.log(`💸 Rasxodlar: ${Math.round(r.totalUZS).toLocaleString()} so'm, $${Math.round(r.totalUSD).toLocaleString()}`);
+            }
+        } catch (e) {
+            console.error('Rasxod stats xatosi:', e.message);
+        }
+    }
+
+    // ============ PRIXOD STATS (Prixod Yuklari widget) ============
+    async loadPrixodStats(baseUrl) {
+        try {
+            const res = await this.fetchWithTimeout(`${baseUrl}/api/cache/prixod-stats/${this.currentPeriod}`, 8000);
+            const data = await res.json();
+
+            if (data.status && data.result) {
+                const r = data.result;
+                const prixodUZSEl = document.getElementById('prixodTotalUZS');
+                const prixodUSDEl = document.getElementById('prixodTotalUSD');
+
+                if (prixodUZSEl) prixodUZSEl.textContent = Math.round(r.totalUZS).toLocaleString('ru-RU');
+                if (prixodUSDEl) prixodUSDEl.textContent = '$' + Math.round(r.totalUSD).toLocaleString();
+
+                console.log(`📦 Prixod: ${Math.round(r.totalUZS).toLocaleString()} so'm, $${Math.round(r.totalUSD).toLocaleString()}`);
+            }
+        } catch (e) {
+            console.error('Prixod stats xatosi:', e.message);
+        }
+    }
+
 }
 
 // Initialize app

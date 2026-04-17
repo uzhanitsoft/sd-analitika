@@ -1445,16 +1445,69 @@ app.get('/api/cache/consumption/:period', async (req, res) => {
     });
 });
 
-// Agentlar
-app.get('/api/cache/agents', (req, res) => {
-    if (!serverCache.agents) {
+// 📦 Prixod yuklari (purchases stats) endpoint
+app.get('/api/cache/prixod-stats/:period', (req, res) => {
+    const period = req.params.period || 'today';
+
+    if (!serverCache.purchases) {
         return res.json({ status: false, error: 'Cache hali tayyor emas' });
     }
 
+    const dateRange = getDateRange(period);
+
+    // Prixodlarni sana bo'yicha filtrlash
+    const filtered = serverCache.purchases.filter(p => {
+        const d = (p.date || p.dateCreate || '').split('T')[0].split(' ')[0];
+        return d >= dateRange.startDate && d <= dateRange.endDate;
+    });
+
+    let totalUZS = 0;
+    let totalUSD = 0;
+    const byShipper = {};
+
+    filtered.forEach(p => {
+        // Har bir prixod hujjatining detaillarini yig'ish
+        let docTotalUZS = 0;
+        let docTotalUSD = 0;
+
+        (p.detail || []).forEach(item => {
+            const price = parseFloat(item.price) || 0;
+            const quantity = parseFloat(item.quantity) || 0;
+            const amount = parseFloat(item.amount) || (price * quantity);
+
+            // Narx < 100 = USD, >= 100 = UZS
+            if (price > 0 && price < 100) {
+                docTotalUSD += amount;
+            } else {
+                docTotalUZS += amount;
+            }
+        });
+
+        totalUZS += docTotalUZS;
+        totalUSD += docTotalUSD;
+
+        // Ta'minotchi bo'yicha guruh
+        const shipperName = p.shipper?.name || 'Noma\'lum';
+        if (!byShipper[shipperName]) {
+            byShipper[shipperName] = { uzs: 0, usd: 0, count: 0 };
+        }
+        byShipper[shipperName].uzs += docTotalUZS;
+        byShipper[shipperName].usd += docTotalUSD;
+        byShipper[shipperName].count++;
+    });
+
+    const shippers = Object.entries(byShipper)
+        .map(([name, v]) => ({ name, totalUZS: v.uzs, totalUSD: v.usd, count: v.count }))
+        .sort((a, b) => (b.totalUZS + b.totalUSD * 12200) - (a.totalUZS + a.totalUSD * 12200));
+
     res.json({
         status: true,
-        result: { agent: serverCache.agents },
-        total: serverCache.agents.length,
+        result: {
+            totalUZS: Math.round(totalUZS),
+            totalUSD: Math.round(totalUSD),
+            totalCount: filtered.length,
+            shippers
+        },
         lastUpdate: serverCache.lastUpdate
     });
 });

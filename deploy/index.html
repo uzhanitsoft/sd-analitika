@@ -104,6 +104,7 @@
                     </svg>
                     <span>Hisobotlar</span>
                 </a>
+                
             </nav>
 
             <div class="sidebar-footer">
@@ -410,6 +411,31 @@
                             </div>
                         </div>
                     </div>
+
+                    <!-- PASTAVSHIKLAR QARZDORLIGI WIDGET -->
+                    <div class="stat-card clickable" onclick="window.app?.openSupplierModal()"
+                        style="background: linear-gradient(135deg, #7c3aed 0%, #a855f7 100%); cursor: pointer;"
+                        title="Pastavshiklar qarzdorligini ko'rish">
+                        <div class="stat-icon" style="background: rgba(255,255,255,0.2);">
+                            <svg viewBox="0 0 24 24" fill="none">
+                                <path d="M20 7H4a2 2 0 00-2 2v10a2 2 0 002 2h16a2 2 0 002-2V9a2 2 0 00-2-2z" stroke="currentColor" stroke-width="2"/>
+                                <path d="M16 7V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                            </svg>
+                        </div>
+                        <div class="stat-content">
+                            <span class="stat-label" style="color: rgba(255,255,255,0.8);">Pastavshiklarga Qarz</span>
+                            <div class="dual-currency">
+                                <div class="currency-row">
+                                    <span class="stat-value" id="supplierTotalDebt" style="color: white;">—</span>
+                                    <span class="currency-label" style="color: rgba(255,255,255,0.7);">so'm</span>
+                                </div>
+                                <div class="currency-row secondary">
+                                    <span class="stat-value-small" id="supplierUsdDebt" style="color: rgba(255,255,255,0.85);">$—</span>
+                                    <span class="currency-label" style="color: rgba(255,255,255,0.6);">dollar</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
                 <!-- QARZDORLIK PREMIUM SECTION -->
@@ -699,9 +725,9 @@
             <div class="section-content" id="pricecheckSection" style="display: none;">
                 <div class="section-header" style="display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 20px;">
                     <h2 style="margin: 0; white-space: nowrap;">Narx tekshirish</h2>
-                    <div style="display: flex; justify-content: center;">
+                    <div style="display: flex; justify-content: center; flex: 1;">
                         <input type="text" id="priceCheckSearch" placeholder="🔍 Mahsulot yoki hujjat qidirish..."
-                            style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.15); color: #fff; padding: 10px 20px; border-radius: 12px; font-size: 14px; width: 100%; max-width: 500px; outline: none; transition: all 0.3s ease; box-shadow: 0 2px 8px rgba(0,0,0,0.1);"
+                            style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.15); color: #fff; padding: 12px 24px; border-radius: 12px; font-size: 15px; width: 100%; outline: none; transition: all 0.3s ease; box-shadow: 0 2px 8px rgba(0,0,0,0.1);"
                             onfocus="this.style.borderColor='rgba(99,102,241,0.5)'; this.style.boxShadow='0 2px 16px rgba(99,102,241,0.15)'; this.style.background='rgba(255,255,255,0.08)'"
                             onblur="this.style.borderColor='rgba(255,255,255,0.15)'; this.style.boxShadow='0 2px 8px rgba(0,0,0,0.1)'; this.style.background='rgba(255,255,255,0.05)'">
                     </div>
@@ -757,6 +783,8 @@
                     </div>
                 </div>
             </div>
+
+            
         </main>
     </div>
 
@@ -831,7 +859,7 @@
     <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="api.js?v=63"></script>
-    <script src="app.js?v=63"></script>
+    <script src="app.js?v=64"></script>
 </body>
 
 </html>
