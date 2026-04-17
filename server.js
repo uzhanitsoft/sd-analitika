@@ -1535,21 +1535,15 @@ app.get('/api/cache/consumption/:period', (req, res) => {
         const amount = parseFloat(c.summa) || 0;
         if (amount <= 0) return;
 
-        // Dollar aniqlash - paymentType SD_id = d0_4 dollar
-        const isDollar = c.paymentType?.SD_id === 'd0_4' || c.paymentType?.CS_id === 'd0_4';
+        // Dollar aniqlash - consumption.json da currency: 'USD' yoki 'UZS'
+        const isDollar = c.currency === 'USD';
 
         if (isDollar) { totalUSD += amount; } else { totalUZS += amount; }
 
-        // Kategoriya - category_parent va category_child dan olish
-        const parentId = c.category_parent?.SD_id || c.category_parent?.CS_id || null;
-        const parentName = c.category_parent?.name || null;
-        const childName = c.category_child?.name || null;
-
-        // Guruh ID va nomi: agar parent bo'lsa parent bo'yicha guruhlash
-        const catId = parentId || 'uncategorized';
-        const catName = parentName || 'Kategoriyasiz';
-        // Sub-kategoriya nomi
-        const subCatName = childName || '';
+        // Kategoriya - consumption.json da categoryParent va categoryChild
+        const catId = c.categoryParentId || c.categoryParent || 'uncategorized';
+        const catName = c.categoryParent || 'Kategoriyasiz';
+        const subCatName = c.categoryChild || '';
 
         if (!catMap[catId]) {
             catMap[catId] = { name: catName, totalUZS: 0, totalUSD: 0, count: 0, items: [] };
@@ -1558,8 +1552,8 @@ app.get('/api/cache/consumption/:period', (req, res) => {
         catMap[catId].count++;
 
         const itemLabel = c.comment || subCatName || catName;
-        const timeStr = (c.date || '').substring(11, 16); // HH:mm
-        const dateStr = (c.date || '').substring(0, 10);  // YYYY-MM-DD
+        const timeStr = (c.datetime || c.date || '').substring(11, 16);
+        const dateStr = (c.date || '').substring(0, 10);
 
         catMap[catId].items.push({
             name: itemLabel,

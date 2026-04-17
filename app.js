@@ -377,8 +377,13 @@ class SalesDoctorApp {
             const statusRes = await this.fetchWithTimeout(`${CACHE_BASE_URL}/api/cache/status`, 5000);
             const statusData = await statusRes.json();
 
-            if (!statusData.hasData) {
-                console.log('⏳ Server cache hali tayyor emas, eski usulda yuklaymiz...');
+                        if (!statusData.hasData) {
+                console.log('⏳ Server orders timeout - widgetlar mustaqil yuklanadi...');
+                // Orders bo'lmasa ham Rasxodlar/Prixod/Kassa mustaqil ishlaydi
+                this.loadKassaStats(CACHE_BASE_URL);
+                this.loadRasxodStats(CACHE_BASE_URL);
+                this.loadPrixodStats(CACHE_BASE_URL);
+                this.loadSupplierWidget(CACHE_BASE_URL);
                 try {
                     await this.loadRealStats();
                 } catch (e) {
@@ -392,12 +397,7 @@ class SalesDoctorApp {
             console.log(`✅ Server cache tayyor: ${statusData.counts.orders} buyurtma`);
 
             // 2️⃣ Statistikani cache dan olish (TEZKOR!)
-            let statsUrl = `${CACHE_BASE_URL}/api/cache/stats/${this.currentPeriod}`;
-            // Custom sana oraligi uchun query parametrlari qo'shish
-            if (this.currentPeriod === 'custom' && this.customStartDate && this.customEndDate) {
-                statsUrl += `?startDate=${this.customStartDate}&endDate=${this.customEndDate}`;
-            }
-            const statsRes = await this.fetchWithTimeout(statsUrl, 5000);
+            const statsRes = await this.fetchWithTimeout(`${CACHE_BASE_URL}/api/cache/stats/${this.currentPeriod}`, 5000);
             const statsData = await statsRes.json();
 
             if (statsData.status && statsData.result) {
@@ -455,7 +455,9 @@ class SalesDoctorApp {
                 .catch(e => console.error('Chart/Table xatosi:', e));
             this.loadDebtAndPaymentStats();
             this.loadKassaStats(CACHE_BASE_URL);
+            this.loadRasxodStats(CACHE_BASE_URL);
             this.loadSupplierWidget(CACHE_BASE_URL);
+            this.loadPrixodStats(CACHE_BASE_URL);
 
         } catch (error) {
             console.error('❌ Server cache xatosi:', error);
@@ -484,11 +486,7 @@ class SalesDoctorApp {
     // 🚀 Cache dan chartlarni yuklash
     async loadCachedCharts(baseUrl) {
         try {
-            let ordersUrl = `${baseUrl}/api/cache/orders/${this.currentPeriod}`;
-            if (this.currentPeriod === 'custom' && this.customStartDate && this.customEndDate) {
-                ordersUrl += `?startDate=${this.customStartDate}&endDate=${this.customEndDate}`;
-            }
-            const ordersRes = await fetch(ordersUrl);
+            const ordersRes = await fetch(`${baseUrl}/api/cache/orders/${this.currentPeriod}`);
             const ordersData = await ordersRes.json();
 
             if (ordersData.status && ordersData.result?.order) {
@@ -505,11 +503,7 @@ class SalesDoctorApp {
         try {
             // Agar cachedOrders allaqachon loadCachedCharts da yuklangan bo'lsa — qayta yuklamaymiz
             if (!this.cachedOrders || this.cachedOrders.length === 0) {
-                let ordersUrl = `${baseUrl}/api/cache/orders/${this.currentPeriod}`;
-                if (this.currentPeriod === 'custom' && this.customStartDate && this.customEndDate) {
-                    ordersUrl += `?startDate=${this.customStartDate}&endDate=${this.customEndDate}`;
-                }
-                const ordersRes = await fetch(ordersUrl);
+                const ordersRes = await fetch(`${baseUrl}/api/cache/orders/${this.currentPeriod}`);
                 const ordersData = await ordersRes.json();
                 if (ordersData.status && ordersData.result?.order) {
                     this.cachedOrders = ordersData.result.order;
@@ -709,7 +703,7 @@ class SalesDoctorApp {
             // Tanlangan period bo'yicha filtrlash
             const { startDate, endDate } = dateRange;
             const filteredOrders = allOrders.filter(order => {
-                const orderDate = (order.dateCreate || order.dateDocument || order.orderCreated || '').split('T')[0].split(' ')[0];
+                const orderDate = (order.dateDocument || order.dateCreate || order.orderCreated || '').split('T')[0].split(' ')[0];
                 if (startDate && endDate) {
                     return orderDate >= startDate && orderDate <= endDate;
                 }
@@ -722,7 +716,7 @@ class SalesDoctorApp {
             filteredOrders.forEach(order => {
                 // "Возврат" (Qaytarish) buyurtmalarini o'tkazib yuborish
                 // status = 4 bu Возврат
-                const orderStatus = parseInt(order.status) || 0;
+                const orderStatus = order.status;
                 const totalSumma = parseFloat(order.totalSumma) || 0;
                 const returnsSumma = parseFloat(order.totalReturnsSumma) || 0;
                 // status 4 = Возврат, status 5 = boshqa qaytarish
@@ -817,7 +811,7 @@ class SalesDoctorApp {
             filteredOrders.forEach(order => {
                 // "Возврат" (Qaytarish) buyurtmalarini o'tkazib yuborish
                 // status = 4 bu Возврат
-                const orderStatus = parseInt(order.status) || 0;
+                const orderStatus = order.status;
                 const totalSumma = parseFloat(order.totalSumma) || 0;
                 const returnsSumma = parseFloat(order.totalReturnsSumma) || 0;
 
@@ -1026,7 +1020,7 @@ class SalesDoctorApp {
 
                     // Faqat oxirgi 30 kunlikni qo'shamiz
                     const recentOrders = orders.filter(order => {
-                        const orderDate = (order.dateCreate || order.dateDocument || order.orderCreated || '').split('T')[0].split(' ')[0];
+                        const orderDate = (order.dateDocument || order.dateCreate || order.orderCreated || '').split('T')[0].split(' ')[0];
                         return orderDate >= startDate;
                     });
 
@@ -1065,7 +1059,7 @@ class SalesDoctorApp {
         const startDate = thirtyDaysAgo.toISOString().split('T')[0];
 
         return orders.filter(order => {
-            const orderDate = (order.dateCreate || order.dateDocument || order.orderCreated || '').split('T')[0].split(' ')[0];
+            const orderDate = (order.dateDocument || order.dateCreate || order.orderCreated || '').split('T')[0].split(' ')[0];
             return orderDate >= startDate;
         });
     }
@@ -1243,7 +1237,7 @@ class SalesDoctorApp {
             if (agentId && irodaAgentIds.has(agentId)) {
                 // "Возврат" (Qaytarish) buyurtmalarini o'tkazib yuborish
                 // status = 4 bu Возврат, yoki totalReturnsSumma = totalSumma
-                const orderStatus = parseInt(order.status) || 0;
+                const orderStatus = order.status;
                 const totalSumma = parseFloat(order.totalSumma) || 0;
                 const returnsSumma = parseFloat(order.totalReturnsSumma) || 0;
 
@@ -1270,7 +1264,7 @@ class SalesDoctorApp {
                     console.log('Xolmirzayeva order:', order.nomer, 'status obj:', JSON.stringify(order.status), 'orderStatus obj:', JSON.stringify(order.orderStatus));
                     xolmirzayevaOrders.push({
                         nomer: order.nomer,
-                        date: order.dateCreate || order.dateDocument,
+                        date: order.dateDocument || order.dateCreate,
                         client: order.client?.name,
                         sum: sum,
                         status: order.status?.name || order.orderStatus?.name || 'UNKNOWN'
@@ -1645,7 +1639,7 @@ class SalesDoctorApp {
 
         // Process orders
         orders.forEach(order => {
-            const orderDate = order.dateCreate || order.dateDocument || order.orderCreated;
+            const orderDate = order.dateDocument || order.dateCreate || order.orderCreated;
             if (orderDate) {
                 const dateStr = orderDate.split('T')[0].split(' ')[0];
                 if (dailyData[dateStr]) {
@@ -1693,7 +1687,7 @@ class SalesDoctorApp {
             // Tanlangan davr bo'yicha filtrlash (API filter ishlamaydi!)
             const { startDate, endDate } = this.getDateRange();
             const orders = allOrders.filter(order => {
-                const orderDate = (order.dateCreate || order.dateDocument || '').split('T')[0].split(' ')[0];
+                const orderDate = (order.dateDocument || order.dateCreate || '').split('T')[0].split(' ')[0];
                 return orderDate >= startDate && orderDate <= endDate;
             });
 
@@ -2347,7 +2341,7 @@ class SalesDoctorApp {
             agents: { title: 'Agentlar', subtitle: 'Sotuvchilar ro\'yxati' },
             lowstock: { title: 'Buyurtma', subtitle: 'Kam qolgan mahsulotlar' },
             pricecheck: { title: 'Narx tekshirish', subtitle: 'Prixod narxlarini taqqoslash' },
-            reports: { title: 'Hisobotlar', subtitle: 'Tahlil va hisobotlar' },
+            reports: { title: 'Hisobotlar', subtitle: 'Tahlil va hisobotlar' }
         };
 
         const pageTitle = titles[section] || titles.dashboard;
@@ -2386,140 +2380,6 @@ class SalesDoctorApp {
             case 'reports':
                 document.getElementById('reportsSection')?.style.setProperty('display', 'block');
                 break;
-        }
-    }
-
-    // Public helper: sidebar widgeti yoki boshqa joydan section ochish
-    showSection(section) {
-        document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
-        const navItem = document.querySelector(`.nav-item[data-section="${section}"]`);
-        if (navItem) navItem.classList.add('active');
-        this.switchSection(section);
-    }
-
-    // Pastavshiklar bo'limini yuklash
-    async loadSuppliersSection() {
-        const tbody = document.getElementById('suppliersTableBody');
-        if (!tbody) return;
-        tbody.innerHTML = '<tr><td colspan="10" style="text-align:center; padding:40px; color:rgba(255,255,255,0.4);">Yuklanmoqda...</td></tr>';
-
-        try {
-            const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-            const BASE = isLocal ? 'http://localhost:3000' : 'https://sd-analitika-production.up.railway.app';
-
-            const res = await this.fetchWithTimeout(`${BASE}/api/cache/shipper-debts`, 8000);
-            const data = await res.json();
-
-            if (!data.status) {
-                tbody.innerHTML = `<tr><td colspan="10" style="text-align:center; padding:40px; color:#f87171;">${data.error || 'Ma\'lumot yuklanmadi'}</td></tr>`;
-                return;
-            }
-
-            const { shippers, totalCount, som, usd } = data.result;
-            this._supplierData = shippers;
-
-            // Summary cardlarni yangilash
-            const fmtSom = (n) => Math.round(n).toLocaleString('ru-RU');
-            const fmtUsd = (n) => (Math.round(n * 100) / 100).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-            const el = (id) => document.getElementById(id);
-
-            if (el('supplierSomWeOwe'))   el('supplierSomWeOwe').textContent   = fmtSom(som?.weOwe || 0);
-            if (el('supplierSomTheyOwe')) el('supplierSomTheyOwe').textContent = fmtSom(som?.theyOwe || 0);
-            if (el('supplierUsdWeOwe'))   el('supplierUsdWeOwe').textContent   = '$ ' + fmtUsd(usd?.weOwe || 0);
-            if (el('supplierUsdTheyOwe')) el('supplierUsdTheyOwe').textContent = '$ ' + fmtUsd(usd?.theyOwe || 0);
-            if (el('supplierTotalCount')) el('supplierTotalCount').textContent = totalCount;
-
-            // Dashboard widget (UZS qarzini ko'rsatamiz)
-            if (el('supplierTotalDebt')) el('supplierTotalDebt').textContent = this.formatCurrency(som?.weOwe || 0);
-            if (el('supplierCount'))     el('supplierCount').textContent = totalCount;
-
-            this.renderSupplierTable(shippers);
-        } catch (e) {
-            tbody.innerHTML = `<tr><td colspan="10" style="text-align:center; padding:40px; color:#f87171;">Xato: ${e.message}</td></tr>`;
-        }
-    }
-
-    renderSupplierTable(shippers) {
-        const tbody = document.getElementById('suppliersTableBody');
-        if (!tbody) return;
-
-        if (!shippers || shippers.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="10" style="text-align:center; padding:40px; color:rgba(255,255,255,0.4);">Ma\'lumot topilmadi</td></tr>';
-            return;
-        }
-
-        // So'm formatlash
-        const fmtS = (n) => {
-            if (!n && n !== 0) return '<span style="color:rgba(255,255,255,0.25);">—</span>';
-            const abs = Math.abs(n);
-            const formatted = Math.round(abs).toLocaleString('ru-RU');
-            const color = n < 0 ? '#f87171' : n > 0 ? '#4ade80' : 'rgba(255,255,255,0.5)';
-            return `<span style="color:${color}">${n < 0 ? '-' : ''}${formatted}</span>`;
-        };
-        // Dollar formatlash
-        const fmtD = (n) => {
-            if (!n && n !== 0) return '<span style="color:rgba(255,255,255,0.25);">—</span>';
-            if (n === 0) return '<span style="color:rgba(255,255,255,0.25);">0</span>';
-            const abs = Math.abs(n);
-            const formatted = (Math.round(abs * 100) / 100).toLocaleString('ru-RU', { minimumFractionDigits: 2 });
-            const color = n < 0 ? '#fbbf24' : '#34d399';
-            return `<span style="color:${color}">${n < 0 ? '-' : ''}${formatted}</span>`;
-        };
-        const plain = (n) => n ? Math.round(Math.abs(n)).toLocaleString('ru-RU') : '—';
-
-        tbody.innerHTML = shippers.map((s, i) => {
-            const sBal = s.som?.balanceEnd || 0;
-            const uBal = s.usd?.balanceEnd || 0;
-
-            // Umumiy status
-            const hasSomDebt = sBal < -1;
-            const hasUsdDebt = uBal < -0.01;
-            const statusColor = (hasSomDebt || hasUsdDebt) ? '#f87171' : '#4ade80';
-            const rowBg = (hasSomDebt || hasUsdDebt) ? 'rgba(239,68,68,0.03)' : 'transparent';
-
-            return `
-            <tr style="background:${rowBg};">
-                <td style="color:rgba(255,255,255,0.4); font-size:12px;">${i + 1}</td>
-                <td style="font-weight:600; color:${statusColor};">${s.name}</td>
-                <!-- UZS ustunlari -->
-                <td style="text-align:right; font-size:13px;">${fmtS(s.som?.balanceStart)}</td>
-                <td style="text-align:right; font-size:13px;">${fmtS(s.som?.weOwe)}</td>
-                <td style="text-align:right; font-size:13px;">${fmtS(s.som?.theyClosed)}</td>
-                <td style="text-align:right; font-size:13px; font-weight:700;">${fmtS(sBal)}</td>
-                <!-- USD ustunlari -->
-                <td style="text-align:right; font-size:13px;">${fmtD(s.usd?.balanceStart)}</td>
-                <td style="text-align:right; font-size:13px;">${fmtD(s.usd?.weOwe)}</td>
-                <td style="text-align:right; font-size:13px;">${fmtD(s.usd?.theyClosed)}</td>
-                <td style="text-align:right; font-size:13px; font-weight:700;">${fmtD(uBal)}</td>
-            </tr>`;
-        }).join('');
-    }
-
-    filterSuppliers(query) {
-        if (!this._supplierData) return;
-        const q = query.toLowerCase().trim();
-        const filtered = q ? this._supplierData.filter(s => s.name.toLowerCase().includes(q)) : this._supplierData;
-        this.renderSupplierTable(filtered);
-    }
-
-    async refreshSupplierDebts() {
-        const btn = document.getElementById('refreshSupplierBtn');
-        if (btn) { btn.disabled = true; btn.style.opacity = '0.6'; }
-        try {
-            const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-            const BASE = isLocal ? 'http://localhost:3000' : 'https://sd-analitika-production.up.railway.app';
-            const res = await fetch(`${BASE}/api/shipper-debts/refresh`, { method: 'POST' });
-            const data = await res.json();
-            if (data.status) {
-                this.showToast('success', 'Yangilandi', `${data.count} ta pastavshik ma'lumoti yangilandi`);
-                await this.loadSuppliersSection();
-            } else {
-                this.showToast('error', 'Xato', data.error || 'Yangilab bo\'lmadi');
-            }
-        } catch(e) {
-            this.showToast('error', 'Xato', e.message);
-        } finally {
-            if (btn) { btn.disabled = false; btn.style.opacity = '1'; }
         }
     }
 
@@ -2562,8 +2422,8 @@ class SalesDoctorApp {
 
             // Sanasi bo'yicha tartiblash (eng yangi birinchi)
             const sortedOrders = [...orders].sort((a, b) => {
-                const dateA = new Date(a.dateCreate || a.dateDocument || 0);
-                const dateB = new Date(b.dateCreate || b.dateDocument || 0);
+                const dateA = new Date(a.dateDocument || a.dateCreate || 0);
+                const dateB = new Date(b.dateDocument || b.dateCreate || 0);
                 return dateB - dateA;
             });
 
@@ -2956,7 +2816,7 @@ class SalesDoctorApp {
 
             orders.forEach(order => {
                 // Qaytarishlarni o'tkazib yuborish
-                if (parseInt(order.status) === 4 || parseInt(order.status) === 5) return;
+                if (order.status === 4 || order.status === 5) return;
                 const returnsSumma = parseFloat(order.totalReturnsSumma) || 0;
                 const totalSumma = parseFloat(order.totalSumma) || 0;
                 if (returnsSumma > 0 && returnsSumma === totalSumma) return;
@@ -3588,7 +3448,7 @@ class SalesDoctorApp {
 
             orders.forEach(order => {
                 // Qaytarishlarni o'tkazib yuborish
-                if (parseInt(order.status) === 4 || parseInt(order.status) === 5) return;
+                if (order.status === 4 || order.status === 5) return;
                 const returnsSumma = parseFloat(order.totalReturnsSumma) || 0;
                 const totalSumma = parseFloat(order.totalSumma) || 0;
                 if (returnsSumma > 0 && returnsSumma === totalSumma) return;
@@ -3831,7 +3691,7 @@ class SalesDoctorApp {
         // Tanlangan davr bo'yicha filtrlash
         const allOrders = this.cachedOrders || [];
         const orders = allOrders.filter(order => {
-            const orderDate = (order.dateCreate || order.dateDocument || '').split('T')[0].split(' ')[0];
+            const orderDate = (order.dateDocument || order.dateCreate || '').split('T')[0].split(' ')[0];
             return orderDate >= startDate && orderDate <= endDate;
         });
 
@@ -3944,11 +3804,11 @@ class SalesDoctorApp {
         // Faqat filtrlangan buyurtmalarni olish
         const allOrders = this.cachedOrders || [];
         const orders = allOrders.filter(order => {
-            const orderDate = (order.dateCreate || order.dateDocument || '').split('T')[0].split(' ')[0];
+            const orderDate = (order.dateDocument || order.dateCreate || '').split('T')[0].split(' ')[0];
             return orderDate >= startDate && orderDate <= endDate;
         }).filter(order => {
             // Qaytarishlarni o'tkazib yuborish
-            if (parseInt(order.status) === 4 || parseInt(order.status) === 5) return false;
+            if (order.status === 4 || order.status === 5) return false;
             const returnsSumma = parseFloat(order.totalReturnsSumma) || 0;
             const totalSumma = parseFloat(order.totalSumma) || 0;
             if (returnsSumma > 0 && returnsSumma === totalSumma) return false;
@@ -4003,7 +3863,7 @@ class SalesDoctorApp {
                     </thead>
                     <tbody>
                         ${sortedOrders.slice(0, 200).map((o, i) => {
-            const date = (o.dateCreate || o.dateDocument || '').split('T')[0].split(' ')[0];
+            const date = (o.dateDocument || o.dateCreate || '').split('T')[0].split(' ')[0];
             const clientName = o.client?.clientName || o.client?.name || 'Noma\'lum';
             const agentName = o.agent?.name || 'Noma\'lum';
             const summa = parseFloat(o.totalSumma) || 0;
@@ -4044,7 +3904,7 @@ class SalesDoctorApp {
         // Faqat filtrlangan buyurtmalardan aktiv mijozlarni olish
         const allOrders = this.cachedOrders || [];
         const orders = allOrders.filter(order => {
-            const orderDate = (order.dateCreate || order.dateDocument || '').split('T')[0].split(' ')[0];
+            const orderDate = (order.dateDocument || order.dateCreate || '').split('T')[0].split(' ')[0];
             return orderDate >= startDate && orderDate <= endDate;
         });
 
@@ -4175,7 +4035,7 @@ class SalesDoctorApp {
             const agentStats = {};
             orders.forEach(order => {
                 // Qaytarishlarni o'tkazib yuborish
-                if (parseInt(order.status) === 4 || parseInt(order.status) === 5) return;
+                if (order.status === 4 || order.status === 5) return;
                 const returnsSumma = parseFloat(order.totalReturnsSumma) || 0;
                 const totalSumma = parseFloat(order.totalSumma) || 0;
                 if (returnsSumma > 0 && returnsSumma === totalSumma) return;
@@ -4322,7 +4182,7 @@ class SalesDoctorApp {
             const agentProfit = {};
             orders.forEach(order => {
                 // Qaytarishlarni o'tkazib yuborish
-                if (parseInt(order.status) === 4 || parseInt(order.status) === 5) return;
+                if (order.status === 4 || order.status === 5) return;
                 const returnsSumma = parseFloat(order.totalReturnsSumma) || 0;
                 const totalSumma = parseFloat(order.totalSumma) || 0;
                 if (returnsSumma > 0 && returnsSumma === totalSumma) return;
@@ -4454,7 +4314,7 @@ class SalesDoctorApp {
             const { startDate, endDate } = this.getDateRange();
             const allOrders = this.cachedOrders || [];
             const orders = allOrders.filter(order => {
-                const orderDate = (order.dateCreate || order.dateDocument || '').split('T')[0].split(' ')[0];
+                const orderDate = (order.dateDocument || order.dateCreate || '').split('T')[0].split(' ')[0];
                 const isInDateRange = orderDate >= startDate && orderDate <= endDate;
                 const isThisAgent = order.agent?.SD_id === agentId;
                 return isInDateRange && isThisAgent;
@@ -5143,7 +5003,7 @@ class SalesDoctorApp {
             }
 
             const filteredOrders = orders.filter(order => {
-                const orderDate = (order.dateCreate || order.dateDocument || '').split('T')[0].split(' ')[0];
+                const orderDate = (order.dateDocument || order.dateCreate || '').split('T')[0].split(' ')[0];
                 if (startDate && endDate) {
                     return orderDate >= startDate && orderDate <= endDate;
                 }
@@ -5383,7 +5243,7 @@ class SalesDoctorApp {
         const { startDate, endDate } = this.getDateRange(this.currentPeriod);
 
         const filteredOrders = orders.filter(order => {
-            const orderDate = (order.dateCreate || order.dateDocument || '').split('T')[0].split(' ')[0];
+            const orderDate = (order.dateDocument || order.dateCreate || '').split('T')[0].split(' ')[0];
             if (startDate && endDate) {
                 return orderDate >= startDate && orderDate <= endDate;
             }
@@ -5425,7 +5285,7 @@ class SalesDoctorApp {
                         ${filteredOrders.map((o, i) => `
                             <tr>
                                 <td class="rank">${i + 1}</td>
-                                <td style="color:#93c5fd;font-size:13px;">${(o.dateCreate || o.dateDocument || '').split('T')[0]}</td>
+                                <td style="color:#93c5fd;font-size:13px;">${(o.dateDocument || o.dateCreate || '').split('T')[0]}</td>
                                 <td class="name">${o.client?.clientName || o.client?.clientLegalName || '-'}</td>
                                 <td style="color:#d8b4fe;">${o.agent?.SD_id || '-'}</td>
                                 <td class="amount" style="color:#34c759;">${this.formatCurrency(parseFloat(o.totalSumma) || 0)}</td>
@@ -5469,6 +5329,12 @@ class SalesDoctorApp {
 
     // Iroda agentlari batafsil
     renderIrodaAgentsDetail() {
+        // Avval loading ko'rsatamiz, keyin server dan ma'lumot olamiz
+        const container = document.querySelector('.detail-content');
+        if (container) {
+            container.innerHTML = '<div style="text-align:center;padding:40px;color:#6b7280;">⏳ Yuklanmoqda...</div>';
+        }
+
         // Server API dan ma'lumot olish (card bilan bir xil manba!)
         const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
         const baseUrl = isLocal ? 'http://localhost:3000' : 'https://sd-analitika-production.up.railway.app';
@@ -5481,8 +5347,6 @@ class SalesDoctorApp {
         fetch(url)
             .then(res => res.json())
             .then(data => {
-                // DOM dan qaytadan olish — modal endi ochilgan!
-                const container = document.getElementById('modalBody');
                 if (!data.status || !data.result) {
                     if (container) container.innerHTML = '<div style="text-align:center;padding:40px;color:#ef4444;">❌ Ma\'lumot yuklanmadi</div>';
                     return;
@@ -5554,7 +5418,6 @@ class SalesDoctorApp {
             })
             .catch(err => {
                 console.error('Iroda detail error:', err);
-                const container = document.getElementById('modalBody');
                 if (container) container.innerHTML = '<div style="text-align:center;padding:40px;color:#ef4444;">❌ Xatolik yuz berdi</div>';
             });
 
@@ -5726,213 +5589,409 @@ class SalesDoctorApp {
         document.body.appendChild(overlay);
     }
 
+    // 💸 Rasxodlar statistikasini yuklash
+    async loadRasxodStats(baseUrl) {
+        try {
+            const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+            const CACHE_BASE_URL = baseUrl || (isLocal
+                ? 'http://localhost:3000'
+                : 'https://sd-analitika-production.up.railway.app');
 
-// Initialize app
+            let rasxodUrl = `${CACHE_BASE_URL}/api/cache/consumption/${this.currentPeriod}`;
+            if (this.currentPeriod === 'custom' && this.customStartDate && this.customEndDate) {
+                rasxodUrl += `?startDate=${this.customStartDate}&endDate=${this.customEndDate}`;
+            }
+            const res = await this.fetchWithTimeout(rasxodUrl, 8000);
+            const data = await res.json();
 
-// ============================================================
+            if (data.status && data.result) {
+                const { totalUZS, totalUSD } = data.result;
+
+                const rasxodUZSEl = document.getElementById('rasxodTotalUZS');
+                const rasxodUSDEl = document.getElementById('rasxodTotalUSD');
+
+                if (rasxodUZSEl) rasxodUZSEl.textContent = Math.round(totalUZS).toLocaleString('ru-RU');
+                if (rasxodUSDEl) rasxodUSDEl.textContent = '$' + Math.round(totalUSD).toLocaleString();
+
+                this._rasxodData = data.result;
+            }
+        } catch (error) {
+            console.error('Rasxod yuklash xatosi:', error);
+        }
+    }
+
+    // 📦 Prixod Yuklari statistikasini yuklash
+    async loadPrixodStats(baseUrl) {
+        try {
+            const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+            const CACHE_BASE_URL = baseUrl || (isLocal
+                ? 'http://localhost:3000'
+                : 'https://sd-analitika-production.up.railway.app');
+
+            let prixodUrl = `${CACHE_BASE_URL}/api/cache/prixod/${this.currentPeriod}`;
+            if (this.currentPeriod === 'custom' && this.customStartDate && this.customEndDate) {
+                prixodUrl += `?startDate=${this.customStartDate}&endDate=${this.customEndDate}`;
+            }
+            const res = await this.fetchWithTimeout(prixodUrl, 8000);
+            const data = await res.json();
+
+            if (data.status && data.result) {
+                const { totalUZS, totalUSD } = data.result;
+
+                const prixodUZSEl = document.getElementById('prixodTotalUZS');
+                const prixodUSDEl = document.getElementById('prixodTotalUSD');
+
+                if (prixodUZSEl) prixodUZSEl.textContent = Math.round(totalUZS).toLocaleString('ru-RU');
+                if (prixodUSDEl) prixodUSDEl.textContent = '$' + Math.round(totalUSD).toLocaleString();
+
+                this._prixodData = data.result;
+                console.log(`📦 Prixod: ${Math.round(totalUZS).toLocaleString()} so'm + $${Math.round(totalUSD).toLocaleString()}`);
+            }
+        } catch (error) {
+            console.error('Prixod yuklash xatosi:', error);
+        }
+    }
+
+    // 📦 Prixod Yuklari modal - ta'minotchilar bo'yicha
+    openPrixodModal() {
+        const data = this._prixodData;
+        if (!data) {
+            this.showToast('warning', 'Ma\'lumot yo\'q', 'Prixod ma\'lumotlari hali yuklanmadi');
+            return;
+        }
+
+        const overlay = document.createElement('div');
+        overlay.className = 'detail-overlay';
+        overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.75);z-index:1000;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(6px);';
+
+        const periodLabels = {
+            'today': 'Bugun',
+            'yesterday': 'Kecha',
+            'week': 'Hafta',
+            'month': 'Oy',
+            'year': 'Yil',
+            'custom': 'Tanlangan davr'
+        };
+        const periodLabel = this.currentPeriod === 'custom' && this.customStartDate
+            ? `${this.customStartDate} — ${this.customEndDate}`
+            : (periodLabels[this.currentPeriod] || this.currentPeriod);
+
+        const shippers = data.shippers || [];
+
+        const shipperRows = shippers.map((shipper, i) => {
+            const uzsStr = shipper.totalUZS > 0 ? Math.round(shipper.totalUZS).toLocaleString('ru-RU') : '—';
+            const usdStr = shipper.totalUSD > 0 ? '$' + Math.round(shipper.totalUSD).toLocaleString() : '—';
+            const docCount = shipper.count || 0;
+            const hasDocs = (shipper.docs || []).length > 0;
+
+            const docRows = (shipper.docs || []).map((doc, j) => {
+                const uzsStr = doc.uzs > 0 ? doc.uzs.toLocaleString('ru-RU') + ' so\'m' : '';
+                const usdStr = doc.usd > 0 ? '$' + doc.usd.toLocaleString() : '';
+                const docAmountStr = usdStr && uzsStr ? `${usdStr} + ${uzsStr}` : (usdStr || uzsStr || '—');
+                return `
+                    <tr id="prixod-docs-${i}-${j}" style="display: none; background: rgba(245,158,11,0.05); border-bottom: 1px solid rgba(255,255,255,0.04);">
+                        <td style="padding: 8px 16px 8px 44px; color: #6b7280; font-size: 12px;">${j + 1}</td>
+                        <td style="padding: 8px 16px; font-size: 13px; color: #d1d5db;">📄 ${doc.date}</td>
+                        <td colspan="2" style="padding: 8px 16px; text-align: right; color: #fbbf24; font-size: 13px; font-weight: 600;">${docAmountStr}</td>
+                        <td style="padding: 8px 16px; text-align: center; color: #6b7280; font-size: 12px;">${doc.itemCount} mahsulot</td>
+                    </tr>`;
+            }).join('');
+
+            return `
+                <tr style="border-bottom: 1px solid rgba(255,255,255,0.06); cursor: pointer; transition: background 0.2s;"
+                    onmouseenter="this.style.background='rgba(255,255,255,0.04)'"
+                    onmouseleave="this.style.background='transparent'"
+                    onclick="
+                        const rows = document.querySelectorAll('[id^=\\'prixod-docs-${i}-\\']');
+                        const arrow = document.getElementById('prixod-arrow-${i}');
+                        const isOpen = arrow.textContent === '▼';
+                        rows.forEach(r => r.style.display = isOpen ? 'none' : '');
+                        arrow.textContent = isOpen ? '▶' : '▼';
+                    ">
+                    <td style="padding: 14px 16px; color: #9ca3af;">${i + 1}</td>
+                    <td style="padding: 14px 16px; font-weight: 600; color: #fef3c7;">
+                        <span id="prixod-arrow-${i}" style="color: #6b7280; margin-right: 8px; font-size: 10px;">▶</span>
+                        🏭 ${shipper.name}
+                        <span style="color: #6b7280; font-size: 12px; margin-left: 8px;">(${docCount} hujjat)</span>
+                    </td>
+                    <td style="padding: 14px 16px; text-align: right; color: #f59e0b; font-weight: 700;">${uzsStr}</td>
+                    <td style="padding: 14px 16px; text-align: right; color: #fbbf24; font-weight: 700;">${usdStr}</td>
+                    <td style="padding: 14px 16px; text-align: center; color: #9ca3af; font-weight: 500;">${docCount}</td>
+                </tr>
+                ${docRows}`;
+        }).join('');
+
+        overlay.innerHTML = `
+            <div style="background: var(--bg-card, #1a1a2e); border-radius: 20px; width: 95%; max-width: 1000px; max-height: 95vh; overflow: hidden; border: 1px solid rgba(245,158,11,0.25); box-shadow: 0 25px 60px rgba(0,0,0,0.6), 0 0 0 1px rgba(245,158,11,0.1); display: flex; flex-direction: column;">
+                <div style="padding: 24px 28px; border-bottom: 1px solid rgba(255,255,255,0.08); display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; background: linear-gradient(135deg, rgba(245,158,11,0.1), transparent);">
+                    <div>
+                        <h2 style="margin: 0; font-size: 24px; color: white; display: flex; align-items: center; gap: 10px;">
+                            <span style="font-size: 28px;">📦</span> Prixod Yuklari
+                        </h2>
+                        <p style="margin: 4px 0 0; color: #9ca3af; font-size: 14px;">${periodLabel} • ${data.totalCount} ta hujjat • Ta'minotchi ustiga bosing → tafsilot</p>
+                    </div>
+                    <button onclick="this.closest('.detail-overlay').remove()"
+                        style="background: rgba(255,255,255,0.1); border: none; color: white; width: 40px; height: 40px; border-radius: 12px; cursor: pointer; font-size: 20px; transition: background 0.2s; display: flex; align-items: center; justify-content: center;"
+                        onmouseenter="this.style.background='rgba(255,255,255,0.2)'"
+                        onmouseleave="this.style.background='rgba(255,255,255,0.1)'">✕</button>
+                </div>
+
+                <div style="padding: 16px 28px; display: flex; gap: 16px; border-bottom: 1px solid rgba(255,255,255,0.08); flex-shrink: 0;">
+                    <div style="flex: 1; background: rgba(245,158,11,0.12); border-radius: 14px; padding: 20px; border: 1px solid rgba(245,158,11,0.25);">
+                        <div style="font-size: 11px; color: #fcd34d; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 8px; font-weight: 600;">💴 Jami So'm</div>
+                        <div style="font-size: 28px; font-weight: 800; color: #f59e0b;">${Math.round(data.totalUZS).toLocaleString('ru-RU')}</div>
+                        <div style="font-size: 12px; color: #6b7280; margin-top: 4px;">so'm</div>
+                    </div>
+                    <div style="flex: 1; background: rgba(251,191,36,0.12); border-radius: 14px; padding: 20px; border: 1px solid rgba(251,191,36,0.25);">
+                        <div style="font-size: 11px; color: #fde68a; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 8px; font-weight: 600;">💵 Jami Dollar</div>
+                        <div style="font-size: 28px; font-weight: 800; color: #fbbf24;">$${Math.round(data.totalUSD).toLocaleString()}</div>
+                        <div style="font-size: 12px; color: #6b7280; margin-top: 4px;">USD</div>
+                    </div>
+                    <div style="flex: 1; background: rgba(168,85,247,0.1); border-radius: 14px; padding: 20px; border: 1px solid rgba(168,85,247,0.2);">
+                        <div style="font-size: 11px; color: #d8b4fe; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 8px; font-weight: 600;">🏭 Ta'minotchilar</div>
+                        <div style="font-size: 28px; font-weight: 800; color: #a855f7;">${shippers.length}</div>
+                        <div style="font-size: 12px; color: #6b7280; margin-top: 4px;">ta yetkazuvchi</div>
+                    </div>
+                    <div style="flex: 1; background: rgba(20,184,166,0.1); border-radius: 14px; padding: 20px; border: 1px solid rgba(20,184,166,0.2);">
+                        <div style="font-size: 11px; color: #99f6e4; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 8px; font-weight: 600;">📋 Hujjatlar</div>
+                        <div style="font-size: 28px; font-weight: 800; color: #14b8a6;">${data.totalCount}</div>
+                        <div style="font-size: 12px; color: #6b7280; margin-top: 4px;">ta prixod</div>
+                    </div>
+                </div>
+
+                <div style="overflow-y: auto; flex: 1;">
+                    <table style="width: 100%; border-collapse: collapse; color: white;">
+                        <thead style="position: sticky; top: 0; background: var(--bg-card, #1a1a2e); z-index: 1; box-shadow: 0 1px 0 rgba(255,255,255,0.08);">
+                            <tr>
+                                <th style="padding: 14px 16px; text-align: left; font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: 1px; width: 50px;">#</th>
+                                <th style="padding: 14px 16px; text-align: left; font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: 1px;">Ta'minotchi</th>
+                                <th style="padding: 14px 16px; text-align: right; font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: 1px;">So'm</th>
+                                <th style="padding: 14px 16px; text-align: right; font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: 1px;">Dollar</th>
+                                <th style="padding: 14px 16px; text-align: center; font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: 1px; width: 90px;">Hujjatlar</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${shipperRows || '<tr><td colspan="5" style="padding: 60px; text-align: center; color: #6b7280;">📦 Ushbu davrda prixod yo\'q</td></tr>'}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        `;
+
+        overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+        const escHandler = (e) => {
+            if (e.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', escHandler); }
+        };
+        document.addEventListener('keydown', escHandler);
+        document.body.appendChild(overlay);
+    }
+
+    // 💸 Rasxodlar modal
+    openRasxodModal() {
+        const data = this._rasxodData;
+        if (!data) {
+            this.showToast && this.showToast('warning', 'Ma\'lumot yo\'q', 'Rasxodlar hali yuklanmadi');
+            alert('Rasxodlar ma\'lumotlari hali yuklanmadi');
+            return;
+        }
+
+        const overlay = document.createElement('div');
+        overlay.className = 'detail-overlay';
+        overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);z-index:1000;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(5px);';
+
+        const periodLabels = { 'today': 'Bugun', 'yesterday': 'Kecha', 'week': 'Hafta', 'month': 'Oy', 'year': 'Yil' };
+        const periodLabel = this.currentPeriod === 'custom' && this.customStartDate
+            ? `${this.customStartDate} — ${this.customEndDate}`
+            : (periodLabels[this.currentPeriod] || this.currentPeriod);
+
+        // Kategoriyalarni server dan kelgan items array bilan ko'rsatish
+        const categories = data.categories || [];
+
+        const catRows = categories.sort((a, b) =>
+            ((b.totalUZS || 0) + (b.totalUSD || 0) * 12200) - ((a.totalUZS || 0) + (a.totalUSD || 0) * 12200)
+        ).map((cat, i) => {
+            const uzsStr = (cat.totalUZS || 0) > 0 ? Math.round(cat.totalUZS).toLocaleString('ru-RU') : '—';
+            const usdStr = (cat.totalUSD || 0) > 0 ? '$' + Math.round(cat.totalUSD).toLocaleString() : '—';
+            const items = cat.items || [];
+            const hasItems = items.length > 0;
+
+            const itemRows = items.map((item, j) => {
+                const itemUzsStr = !item.isDollar && item.summa > 0 ? Math.round(item.summa).toLocaleString('ru-RU') : '—';
+                const itemUsdStr = item.isDollar && item.summa > 0 ? '$' + (Math.round(item.summa * 100) / 100).toLocaleString() : '—';
+                const dateStr = item.date || '';
+                const timeStr = item.time ? ' ' + item.time : '';
+                const label = item.name || item.subCategory || '—';
+                return `\r\n                    <tr id="rasxod-item-${i}-${j}" style="display:none; background: rgba(239,68,68,0.04); border-bottom: 1px solid rgba(255,255,255,0.04);">\r\n                        <td style="padding: 8px 16px 8px 40px; color: #6b7280; font-size: 12px;">${j + 1}</td>\r\n                        <td style="padding: 8px 16px; font-size: 13px; color: #cbd5e1;">📝 ${label}</td>\r\n                        <td style="padding: 8px 16px; text-align: right; color: #ef4444; font-size: 13px; font-weight:600;">${itemUzsStr}</td>\r\n                        <td style="padding: 8px 16px; text-align: right; color: #f97316; font-size: 13px; font-weight:600;">${itemUsdStr}</td>\r\n                        <td style="padding: 8px 16px; text-align: center; color: #94a3b8; font-size: 11px;">${dateStr}${timeStr}</td>\r\n                    </tr>`;
+            }).join('');
+
+            return `\r\n                <tr style="border-bottom: 1px solid rgba(255,255,255,0.06); cursor:${hasItems ? 'pointer' : 'default'}; transition: background 0.2s;"\r\n                    onmouseenter="this.style.background='rgba(255,255,255,0.04)'"\r\n                    onmouseleave="this.style.background='transparent'"\r\n                    ${hasItems ? `onclick="const items_${i}=document.querySelectorAll('[id^=\\'rasxod-item-${i}-\\']');const arr_${i}=document.getElementById('rasxod-arrow-${i}');const open_${i}=arr_${i}&&arr_${i}.textContent==='\u25BC';items_${i}.forEach(r=>r.style.display=open_${i}?'none':'');if(arr_${i})arr_${i}.textContent=open_${i}?'\u25B6':'\u25BC';"` : ''}>\r\n                    <td style="padding: 14px 16px; color: #9ca3af;">${i + 1}</td>\r\n                    <td style="padding: 14px 16px; font-weight: 600; color: #f1f5f9;">\r\n                        ${hasItems ? `<span id="rasxod-arrow-${i}" style="color:#6b7280;margin-right:8px;font-size:10px;">&#x25B6;</span>` : '<span style="width:18px;display:inline-block;"></span>'}\r\n                        🏷️ ${cat.name}\r\n                    </td>\r\n                    <td style="padding: 14px 16px; text-align: right; color: #ef4444; font-weight: 700;">${uzsStr}</td>\r\n                    <td style="padding: 14px 16px; text-align: right; color: #f97316; font-weight: 700;">${usdStr}</td>\r\n                    <td style="padding: 14px 16px; text-align: center; color: #9ca3af; font-weight: 500;">${cat.count || 0}</td>\r\n                </tr>\r\n                ${itemRows}`;
+        }).join('');
+
+        overlay.innerHTML = `
+            <div style="background: var(--bg-card, #1a1a2e); border-radius: 20px; width: 95%; max-width: 1000px; max-height: 95vh; overflow: hidden; border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 25px 50px rgba(0,0,0,0.5); display: flex; flex-direction: column;">
+                <div style="padding: 24px 28px; border-bottom: 1px solid rgba(255,255,255,0.08); display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;">
+                    <div>
+                        <h2 style="margin: 0; font-size: 24px; color: white;">💸 Rasxodlar</h2>
+                        <p style="margin: 4px 0 0; color: #9ca3af; font-size: 14px;">${periodLabel} • ${data.totalCount || 0} ta xarajat • Kategoriya ustiga bosing → tafsilot</p>
+                    </div>
+                    <button onclick="this.closest('.detail-overlay').remove()"
+                        style="background: rgba(255,255,255,0.1); border: none; color: white; width: 40px; height: 40px; border-radius: 12px; cursor: pointer; font-size: 20px; transition: background 0.2s;"
+                        onmouseenter="this.style.background='rgba(255,255,255,0.2)'"
+                        onmouseleave="this.style.background='rgba(255,255,255,0.1)'">✕</button>
+                </div>
+
+                <div style="padding: 16px 28px; display: flex; gap: 16px; border-bottom: 1px solid rgba(255,255,255,0.08); flex-shrink: 0;">
+                    <div style="flex: 1; background: rgba(239,68,68,0.1); border-radius: 14px; padding: 20px; border: 1px solid rgba(239,68,68,0.2);">
+                        <div style="font-size: 12px; color: #fca5a5; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px;">Jami So'm</div>
+                        <div style="font-size: 28px; font-weight: 800; color: #ef4444;">${Math.round(data.totalUZS || 0).toLocaleString('ru-RU')}</div>
+                        <div style="font-size: 12px; color: #6b7280; margin-top: 4px;">so'm</div>
+                    </div>
+                    <div style="flex: 1; background: rgba(249,115,22,0.1); border-radius: 14px; padding: 20px; border: 1px solid rgba(249,115,22,0.2);">
+                        <div style="font-size: 12px; color: #fdba74; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px;">Jami Dollar</div>
+                        <div style="font-size: 28px; font-weight: 800; color: #f97316;">$${Math.round(data.totalUSD || 0).toLocaleString()}</div>
+                        <div style="font-size: 12px; color: #6b7280; margin-top: 4px;">USD</div>
+                    </div>
+                    <div style="flex: 1; background: rgba(168,85,247,0.1); border-radius: 14px; padding: 20px; border: 1px solid rgba(168,85,247,0.2);">
+                        <div style="font-size: 12px; color: #d8b4fe; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px;">Kategoriyalar</div>
+                        <div style="font-size: 28px; font-weight: 800; color: #a855f7;">${categories.length}</div>
+                        <div style="font-size: 12px; color: #6b7280; margin-top: 4px;">ta tur</div>
+                    </div>
+                </div>
+
+                <div style="overflow-y: auto; flex: 1;">
+                    <table style="width: 100%; border-collapse: collapse; color: white;">
+                        <thead style="position: sticky; top: 0; background: var(--bg-card, #1a1a2e); z-index: 1;">
+                            <tr style="border-bottom: 2px solid rgba(255,255,255,0.1);">
+                                <th style="padding: 14px 16px; text-align: left; font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: 1px; width: 50px;">#</th>
+                                <th style="padding: 14px 16px; text-align: left; font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: 1px;">Kategoriya</th>
+                                <th style="padding: 14px 16px; text-align: right; font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: 1px;">So'm</th>
+                                <th style="padding: 14px 16px; text-align: right; font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: 1px;">Dollar</th>
+                                <th style="padding: 14px 16px; text-align: center; font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: 1px; width: 80px;">Soni</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${catRows || '<tr><td colspan="5" style="padding: 40px; text-align: center; color: #6b7280;">Ma\'lumot yo\'q</td></tr>'}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        `;
+
+        overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+        const escHandler = (e) => {
+            if (e.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', escHandler); }
+        };
+        document.addEventListener('keydown', escHandler);
+        document.body.appendChild(overlay);
+    }
+
+    // ============================================================
     // PASTAVSHIKLAR QARZI - Widget va Modal
     // ============================================================
     async loadSupplierWidget(baseUrl) {
         try {
-            const res = await this.fetchWithTimeout(`${baseUrl}/api/cache/shipper-debts`, 8000);
+            const res = await this.fetchWithTimeout(baseUrl + '/api/cache/shipper-debts', 8000);
             const data = await res.json();
             if (!data.status || !data.result) return;
-
             this._supplierData = data.result;
-
             const { som, usd } = data.result;
             const fmtS = (n) => Math.round(n).toLocaleString('ru-RU');
             const fmtD = (n) => (Math.round(n * 100) / 100).toLocaleString('ru-RU', { minimumFractionDigits: 2 });
-
-            // Dashboard widget yangilash
             const debtEl = document.getElementById('supplierTotalDebt');
-            const usdEl  = document.getElementById('supplierUsdDebt');
-            if (debtEl) debtEl.textContent = fmtS(som?.weOwe || 0);
-            if (usdEl)  usdEl.textContent  = '$ ' + fmtD(usd?.weOwe || 0);
+            const usdEl = document.getElementById('supplierUsdDebt');
+            if (debtEl) debtEl.textContent = fmtS(som && som.weOwe ? Math.abs(som.weOwe) : 0);
+            if (usdEl) usdEl.textContent = '$ ' + fmtD(usd && usd.weOwe ? Math.abs(usd.weOwe) : 0);
         } catch(e) {
             console.error('Supplier widget xatosi:', e.message);
         }
     }
 
     openSupplierModal() {
-        const data = this._supplierData;
-        if (!data) {
-            // Data yo'q - yuklaymiz
-            const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-            const BASE = isLocal ? 'http://localhost:3000' : 'https://sd-analitika-production.up.railway.app';
+        const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+        const BASE = isLocal ? 'http://localhost:3000' : 'https://sd-analitika-production.up.railway.app';
+        if (!this._supplierData) {
             this.loadSupplierWidget(BASE).then(() => this.openSupplierModal());
             return;
         }
-
+        const data = this._supplierData;
         const { shippers = [], som = {}, usd = {}, totalCount = 0 } = data;
-        const fmtS = (n) => {
-            if (!n && n !== 0) return '<span style="color:rgba(255,255,255,0.2);">—</span>';
-            const abs = Math.abs(n);
-            const color = n < 0 ? '#f87171' : n > 0 ? '#4ade80' : 'rgba(255,255,255,0.4)';
-            return `<span style="color:${color}">${n < 0 ? '-' : ''}${Math.round(abs).toLocaleString('ru-RU')}</span>`;
+        const sign = (n) => n < 0 ? '-' : '';
+        const abs = (n) => Math.abs(n);
+        const fS = (n) => {
+            if (n == null) return '<span style="color:rgba(255,255,255,0.2);">-</span>';
+            const col = n < 0 ? '#f87171' : n > 0 ? '#4ade80' : 'rgba(255,255,255,0.4)';
+            return '<span style="color:' + col + '">' + sign(n) + Math.round(abs(n)).toLocaleString('ru-RU') + '</span>';
         };
-        const fmtD = (n) => {
-            if (!n && n !== 0) return '<span style="color:rgba(255,255,255,0.2);">—</span>';
+        const fD = (n) => {
+            if (n == null) return '<span style="color:rgba(255,255,255,0.2);">-</span>';
             if (Math.abs(n) < 0.001) return '<span style="color:rgba(255,255,255,0.25);">0</span>';
-            const abs = Math.abs(n);
-            const color = n < 0 ? '#fbbf24' : '#34d399';
-            const formatted = (Math.round(abs * 100) / 100).toLocaleString('ru-RU', { minimumFractionDigits: 2 });
-            return `<span style="color:${color}">${n < 0 ? '-' : ''}${formatted}</span>`;
+            const col = n < 0 ? '#fbbf24' : '#34d399';
+            return '<span style="color:' + col + '">' + sign(n) + (Math.round(abs(n)*100)/100).toLocaleString('ru-RU', {minimumFractionDigits:2}) + '</span>';
         };
-
         const rows = shippers.map((s, i) => {
-            const sBal = s.som?.balanceEnd || 0;
-            const uBal = s.usd?.balanceEnd || 0;
-            const hasDebt = sBal < -1 || uBal < -0.01;
-            return `<tr style="background:${hasDebt ? 'rgba(239,68,68,0.04)' : 'transparent'}">
-                <td style="color:rgba(255,255,255,0.35);font-size:12px;padding:8px 6px;">${i+1}</td>
-                <td style="font-weight:600;color:${hasDebt ? '#f87171':'#e2e8f0'};padding:8px 6px;">${s.name}</td>
-                <td style="text-align:right;padding:8px 6px;font-size:13px;">${fmtS(s.som?.balanceStart)}</td>
-                <td style="text-align:right;padding:8px 6px;font-size:13px;">${fmtS(s.som?.weOwe)}</td>
-                <td style="text-align:right;padding:8px 6px;font-size:13px;">${fmtS(s.som?.theyClosed)}</td>
-                <td style="text-align:right;padding:8px 6px;font-size:13px;font-weight:700;">${fmtS(sBal)}</td>
-                <td style="text-align:right;padding:8px 6px;font-size:13px;">${fmtD(s.usd?.balanceStart)}</td>
-                <td style="text-align:right;padding:8px 6px;font-size:13px;">${fmtD(s.usd?.weOwe)}</td>
-                <td style="text-align:right;padding:8px 6px;font-size:13px;">${fmtD(s.usd?.theyClosed)}</td>
-                <td style="text-align:right;padding:8px 6px;font-size:13px;font-weight:700;">${fmtD(uBal)}</td>
-            </tr>`;
+            const sBal = s.som && s.som.balanceEnd != null ? s.som.balanceEnd : null;
+            const uBal = s.usd && s.usd.balanceEnd != null ? s.usd.balanceEnd : null;
+            const hasDebt = (sBal != null && sBal < -1) || (uBal != null && uBal < -0.01);
+            return '<tr style="background:' + (hasDebt ? 'rgba(239,68,68,0.05)' : 'transparent') + ';border-bottom:1px solid rgba(255,255,255,0.04);">' +
+                '<td style="padding:8px 6px;color:rgba(255,255,255,0.3);font-size:12px;">' + (i+1) + '</td>' +
+                '<td style="padding:8px 6px;font-weight:600;color:' + (hasDebt ? '#f87171' : '#e2e8f0') + ';">' + s.name + '</td>' +
+                '<td style="padding:8px 6px;text-align:right;">' + fS(s.som && s.som.balanceStart != null ? s.som.balanceStart : null) + '</td>' +
+                '<td style="padding:8px 6px;text-align:right;">' + fS(s.som && s.som.weOwe != null ? s.som.weOwe : null) + '</td>' +
+                '<td style="padding:8px 6px;text-align:right;">' + fS(s.som && s.som.theyClosed != null ? s.som.theyClosed : null) + '</td>' +
+                '<td style="padding:8px 6px;text-align:right;font-weight:700;">' + fS(sBal) + '</td>' +
+                '<td style="padding:8px 6px;text-align:right;">' + fD(s.usd && s.usd.balanceStart != null ? s.usd.balanceStart : null) + '</td>' +
+                '<td style="padding:8px 6px;text-align:right;">' + fD(s.usd && s.usd.weOwe != null ? s.usd.weOwe : null) + '</td>' +
+                '<td style="padding:8px 6px;text-align:right;">' + fD(s.usd && s.usd.theyClosed != null ? s.usd.theyClosed : null) + '</td>' +
+                '<td style="padding:8px 6px;text-align:right;font-weight:700;">' + fD(uBal) + '</td>' +
+                '</tr>';
         }).join('');
-
-        const fmtSumS = (n) => Math.round(n).toLocaleString('ru-RU');
-        const fmtSumD = (n) => (Math.round(n*100)/100).toLocaleString('ru-RU', {minimumFractionDigits:2});
 
         const overlay = document.createElement('div');
         overlay.className = 'detail-overlay';
         overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.75);z-index:1000;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(6px);';
-        
-        overlay.innerHTML = `
-        <div style="background:linear-gradient(135deg,#1a1a2e 0%,#16213e 50%,#0f3460 100%);border:1px solid rgba(168,85,247,0.3);border-radius:20px;padding:28px;width:95%;max-width:1300px;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 25px 80px rgba(0,0,0,0.6);">
-            <!-- Header -->
-            <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px;flex-shrink:0;">
-                <div>
-                    <div style="display:flex;align-items:center;gap:12px;margin-bottom:6px;">
-                        <div style="width:40px;height:40px;border-radius:12px;background:linear-gradient(135deg,#7c3aed,#a855f7);display:flex;align-items:center;justify-content:center;">
-                            <svg viewBox="0 0 24 24" fill="none" width="20" height="20">
-                                <path d="M20 7H4a2 2 0 00-2 2v10a2 2 0 002 2h16a2 2 0 002-2V9a2 2 0 00-2-2z" stroke="white" stroke-width="2"/>
-                                <path d="M16 7V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v2" stroke="white" stroke-width="2" stroke-linecap="round"/>
-                            </svg>
-                        </div>
-                        <div>
-                            <h2 style="margin:0;font-size:20px;color:#fff;">Pastavshiklar Qarzdorligi</h2>
-                            <p style="margin:0;font-size:13px;color:rgba(255,255,255,0.5);">Oborot po pastavshikam — ${totalCount} ta kontragent</p>
-                        </div>
-                    </div>
-                </div>
-                <div style="display:flex;gap:10px;align-items:center;">
-                    <input type="text" placeholder="🔍 Qidirish..." id="supplierModalSearch"
-                        style="background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);color:#fff;padding:8px 14px;border-radius:10px;font-size:13px;outline:none;width:200px;"
-                        oninput="window._filterSupplierModal(this.value)">
-                    <button onclick="window._refreshSupplierModal()" 
-                        style="background:rgba(168,85,247,0.2);border:1px solid rgba(168,85,247,0.4);color:#c084fc;padding:8px 14px;border-radius:10px;cursor:pointer;font-size:13px;">
-                        ↻ Yangilash
-                    </button>
-                    <button onclick="this.closest('.detail-overlay').remove()"
-                        style="background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);color:rgba(255,255,255,0.7);width:36px;height:36px;border-radius:10px;cursor:pointer;font-size:18px;display:flex;align-items:center;justify-content:center;">×</button>
-                </div>
-            </div>
-
-            <!-- Summary qatorlari -->
-            <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px;flex-shrink:0;">
-                <div style="background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.25);border-radius:12px;padding:14px;">
-                    <div style="font-size:11px;color:rgba(255,255,255,0.5);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">Biz qarzimiz (so'm)</div>
-                    <div style="font-size:18px;font-weight:700;color:#f87171;">${fmtSumS(som.weOwe || 0)}</div>
-                </div>
-                <div style="background:rgba(74,222,128,0.08);border:1px solid rgba(74,222,128,0.2);border-radius:12px;padding:14px;">
-                    <div style="font-size:11px;color:rgba(255,255,255,0.5);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">Ular bizga qarzdor (so'm)</div>
-                    <div style="font-size:18px;font-weight:700;color:#4ade80;">${fmtSumS(som.theyOwe || 0)}</div>
-                </div>
-                <div style="background:rgba(251,191,36,0.08);border:1px solid rgba(251,191,36,0.2);border-radius:12px;padding:14px;">
-                    <div style="font-size:11px;color:rgba(255,255,255,0.5);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">Biz qarzimiz ($)</div>
-                    <div style="font-size:18px;font-weight:700;color:#fbbf24;">$ ${fmtSumD(usd.weOwe || 0)}</div>
-                </div>
-                <div style="background:rgba(52,211,153,0.08);border:1px solid rgba(52,211,153,0.2);border-radius:12px;padding:14px;">
-                    <div style="font-size:11px;color:rgba(255,255,255,0.5);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">Ular bizga qarzdor ($)</div>
-                    <div style="font-size:18px;font-weight:700;color:#34d399;">$ ${fmtSumD(usd.theyOwe || 0)}</div>
-                </div>
-            </div>
-
-            <!-- Jadval -->
-            <div style="overflow-y:auto;flex:1;border-radius:12px;border:1px solid rgba(255,255,255,0.08);">
-                <table id="supplierModalTable" style="width:100%;border-collapse:collapse;font-size:13px;">
-                    <thead style="position:sticky;top:0;z-index:2;">
-                        <tr style="background:rgba(15,20,40,0.95);backdrop-filter:blur(10px);">
-                            <th style="padding:10px 6px;text-align:left;color:rgba(255,255,255,0.5);font-weight:500;font-size:11px;border-bottom:1px solid rgba(255,255,255,0.08);">#</th>
-                            <th style="padding:10px 6px;text-align:left;color:rgba(255,255,255,0.5);font-weight:500;font-size:11px;border-bottom:1px solid rgba(255,255,255,0.08);">PASTAVSHIK</th>
-                            <th colspan="4" style="padding:10px 6px;text-align:center;color:#60a5fa;font-weight:600;font-size:11px;border-bottom:1px solid rgba(255,255,255,0.08);background:rgba(96,165,250,0.05);">SO'M (UZS)</th>
-                            <th colspan="4" style="padding:10px 6px;text-align:center;color:#fbbf24;font-weight:600;font-size:11px;border-bottom:1px solid rgba(255,255,255,0.08);background:rgba(251,191,36,0.05);">DOLLAR (USD)</th>
-                        </tr>
-                        <tr style="background:rgba(10,15,35,0.95);">
-                            <th style="padding:6px;border-bottom:1px solid rgba(255,255,255,0.06);"></th>
-                            <th style="padding:6px;border-bottom:1px solid rgba(255,255,255,0.06);"></th>
-                            <th style="padding:6px;text-align:right;color:rgba(96,165,250,0.7);font-weight:400;font-size:11px;border-bottom:1px solid rgba(255,255,255,0.06);">Davr boshi</th>
-                            <th style="padding:6px;text-align:right;color:rgba(248,113,113,0.7);font-weight:400;font-size:11px;border-bottom:1px solid rgba(255,255,255,0.06);">Biz qarzimiz</th>
-                            <th style="padding:6px;text-align:right;color:rgba(74,222,128,0.7);font-weight:400;font-size:11px;border-bottom:1px solid rgba(255,255,255,0.06);">Ular yopdi</th>
-                            <th style="padding:6px;text-align:right;color:rgba(255,255,255,0.7);font-weight:600;font-size:11px;border-bottom:1px solid rgba(255,255,255,0.06);">Balans</th>
-                            <th style="padding:6px;text-align:right;color:rgba(251,191,36,0.7);font-weight:400;font-size:11px;border-bottom:1px solid rgba(255,255,255,0.06);">Davr boshi</th>
-                            <th style="padding:6px;text-align:right;color:rgba(251,146,60,0.7);font-weight:400;font-size:11px;border-bottom:1px solid rgba(255,255,255,0.06);">Biz qarzimiz</th>
-                            <th style="padding:6px;text-align:right;color:rgba(52,211,153,0.7);font-weight:400;font-size:11px;border-bottom:1px solid rgba(255,255,255,0.06);">Ular yopdi</th>
-                            <th style="padding:6px;text-align:right;color:rgba(255,255,255,0.7);font-weight:600;font-size:11px;border-bottom:1px solid rgba(255,255,255,0.06);">Balans</th>
-                        </tr>
-                    </thead>
-                    <tbody id="supplierModalTbody">${rows}</tbody>
-                </table>
-            </div>
-        </div>`;
-
+        overlay.innerHTML = 
+            '<div style="background:linear-gradient(135deg,#1a1a2e,#16213e,#0f3460);border:1px solid rgba(168,85,247,0.3);border-radius:20px;padding:28px;width:95%;max-width:1300px;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 25px 80px rgba(0,0,0,0.6);">' +
+            '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">' +
+            '<div><h2 style="margin:0;font-size:20px;color:#fff;">Pastavshiklar Qarzdorligi</h2>' +
+            '<p style="margin:0;font-size:13px;color:rgba(255,255,255,0.5);">Oborot po pastavshikam - ' + totalCount + ' ta kontragent</p></div>' +
+            '<button onclick="this.closest(\'.detail-overlay\').remove()" style="background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);color:rgba(255,255,255,0.7);width:36px;height:36px;border-radius:10px;cursor:pointer;font-size:18px;">&#x2715;</button>' +
+            '</div>' +
+            '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px;">' +
+            '<div style="background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.25);border-radius:12px;padding:14px;"><div style="font-size:11px;color:rgba(255,255,255,0.5);margin-bottom:6px;">Biz qarzimiz (soʻm)</div><div style="font-size:18px;font-weight:700;color:#f87171;">' + Math.round(Math.abs(som.weOwe||0)).toLocaleString('ru-RU') + '</div></div>' +
+            '<div style="background:rgba(74,222,128,0.08);border:1px solid rgba(74,222,128,0.2);border-radius:12px;padding:14px;"><div style="font-size:11px;color:rgba(255,255,255,0.5);margin-bottom:6px;">Ular bizga qarzdor (soʻm)</div><div style="font-size:18px;font-weight:700;color:#4ade80;">' + Math.round(som.theyOwe||0).toLocaleString('ru-RU') + '</div></div>' +
+            '<div style="background:rgba(251,191,36,0.08);border:1px solid rgba(251,191,36,0.2);border-radius:12px;padding:14px;"><div style="font-size:11px;color:rgba(255,255,255,0.5);margin-bottom:6px;">Biz qarzimiz ($)</div><div style="font-size:18px;font-weight:700;color:#fbbf24;">$ ' + (Math.round(Math.abs(usd.weOwe||0)*100)/100).toLocaleString('ru-RU',{minimumFractionDigits:2}) + '</div></div>' +
+            '<div style="background:rgba(52,211,153,0.08);border:1px solid rgba(52,211,153,0.2);border-radius:12px;padding:14px;"><div style="font-size:11px;color:rgba(255,255,255,0.5);margin-bottom:6px;">Ular bizga qarzdor ($)</div><div style="font-size:18px;font-weight:700;color:#34d399;">$ ' + (Math.round((usd.theyOwe||0)*100)/100).toLocaleString('ru-RU',{minimumFractionDigits:2}) + '</div></div>' +
+            '</div>' +
+            '<div style="overflow-y:auto;flex:1;border-radius:12px;border:1px solid rgba(255,255,255,0.08);">' +
+            '<table style="width:100%;border-collapse:collapse;font-size:13px;color:#e2e8f0;">' +
+            '<thead style="position:sticky;top:0;z-index:2;background:#0d1224;"><tr>' +
+            '<th style="padding:10px 6px;text-align:center;font-size:11px;color:rgba(255,255,255,0.4);">#</th>' +
+            '<th style="padding:10px 6px;text-align:left;font-size:11px;color:rgba(255,255,255,0.4);">PASTAVSHIK</th>' +
+            '<th colspan="4" style="padding:10px 6px;text-align:center;font-size:11px;color:#60a5fa;border-left:1px solid rgba(255,255,255,0.06);">SO\u2019M (UZS)</th>' +
+            '<th colspan="4" style="padding:10px 6px;text-align:center;font-size:11px;color:#fbbf24;border-left:1px solid rgba(255,255,255,0.06);">DOLLAR (USD)</th>' +
+            '</tr><tr>' +
+            '<th></th><th></th>' +
+            '<th style="padding:6px;text-align:right;font-size:10px;font-weight:500;color:rgba(96,165,250,0.6);">Davr boshi</th>' +
+            '<th style="padding:6px;text-align:right;font-size:10px;font-weight:500;color:rgba(248,113,113,0.6);">Biz qarzimiz</th>' +
+            '<th style="padding:6px;text-align:right;font-size:10px;font-weight:500;color:rgba(74,222,128,0.6);">Ular to\u02BBladi</th>' +
+            '<th style="padding:6px;text-align:right;font-size:10px;font-weight:500;color:rgba(255,255,255,0.6);">Qoldiq</th>' +
+            '<th style="padding:6px;text-align:right;font-size:10px;font-weight:500;color:rgba(251,191,36,0.6);border-left:1px solid rgba(255,255,255,0.06);">Davr boshi</th>' +
+            '<th style="padding:6px;text-align:right;font-size:10px;font-weight:500;color:rgba(251,146,60,0.6);">Biz qarzimiz</th>' +
+            '<th style="padding:6px;text-align:right;font-size:10px;font-weight:500;color:rgba(52,211,153,0.6);">Ular to\u02BBladi</th>' +
+            '<th style="padding:6px;text-align:right;font-size:10px;font-weight:500;color:rgba(255,255,255,0.6);">Qoldiq</th>' +
+            '</tr></thead>' +
+            '<tbody>' + rows + '</tbody>' +
+            '</table></div></div>';
         document.body.appendChild(overlay);
-
-        // Global filter funksiyasi
-        const allShippers = shippers;
-        window._filterSupplierModal = (q) => {
-            const filtered = q ? allShippers.filter(s => s.name.toLowerCase().includes(q.toLowerCase())) : allShippers;
-            const tbody = document.getElementById('supplierModalTbody');
-            if (!tbody) return;
-            tbody.innerHTML = filtered.map((s, i) => {
-                const sBal = s.som?.balanceEnd || 0;
-                const uBal = s.usd?.balanceEnd || 0;
-                const hasDebt = sBal < -1 || uBal < -0.01;
-                return `<tr style="background:${hasDebt ? 'rgba(239,68,68,0.04)' : 'transparent'}">
-                    <td style="color:rgba(255,255,255,0.35);font-size:12px;padding:8px 6px;">${i+1}</td>
-                    <td style="font-weight:600;color:${hasDebt ? '#f87171':'#e2e8f0'};padding:8px 6px;">${s.name}</td>
-                    <td style="text-align:right;padding:8px 6px;font-size:13px;">${fmtS(s.som?.balanceStart)}</td>
-                    <td style="text-align:right;padding:8px 6px;font-size:13px;">${fmtS(s.som?.weOwe)}</td>
-                    <td style="text-align:right;padding:8px 6px;font-size:13px;">${fmtS(s.som?.theyClosed)}</td>
-                    <td style="text-align:right;padding:8px 6px;font-size:13px;font-weight:700;">${fmtS(sBal)}</td>
-                    <td style="text-align:right;padding:8px 6px;font-size:13px;">${fmtD(s.usd?.balanceStart)}</td>
-                    <td style="text-align:right;padding:8px 6px;font-size:13px;">${fmtD(s.usd?.weOwe)}</td>
-                    <td style="text-align:right;padding:8px 6px;font-size:13px;">${fmtD(s.usd?.theyClosed)}</td>
-                    <td style="text-align:right;padding:8px 6px;font-size:13px;font-weight:700;">${fmtD(uBal)}</td>
-                </tr>`;
-            }).join('');
-        };
-
-        window._refreshSupplierModal = async () => {
-            const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-            const BASE = isLocal ? 'http://localhost:3000' : 'https://sd-analitika-production.up.railway.app';
-            try {
-                const r = await fetch(`${BASE}/api/shipper-debts/refresh`, { method: 'POST' });
-                const d = await r.json();
-                if (d.status) {
-                    overlay.remove();
-                    await this.loadSupplierWidget(BASE);
-                    this.openSupplierModal();
-                }
-            } catch(e) { console.error(e); }
-        };
-
-        // ESC bilan yopish
-        const esc = (e) => { if (e.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', esc); } };
-        document.addEventListener('keydown', esc);
-        overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+        overlay.addEventListener('click', function(e) { if(e.target === overlay) overlay.remove(); });
+        var fn = function(e) { if(e.key==='Escape'){overlay.remove();document.removeEventListener('keydown',fn);} };
+        document.addEventListener('keydown', fn);
     }
 
 }
+
+// Initialize app
 document.addEventListener('DOMContentLoaded', () => {
     window.app = new SalesDoctorApp();
-
 });
+
