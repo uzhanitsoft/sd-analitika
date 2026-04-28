@@ -2188,50 +2188,71 @@ app.post('/api/cache/refresh', async (req, res) => {
 // 📊 POWER BI EXPORT ENDPOINTS — barcha ma'lumotlar tekis JSON array da
 // =============================================================================
 
-// 💰 To'lovlar (Kassa / Pul kirimi)
+// 💰 Pul kirimi (To'lovlar / Kassa)
 app.get('/api/export/payments', (req, res) => {
     if (!serverCache.payments) return res.json({ error: 'Cache tayyor emas' });
-    const data = serverCache.payments.map(p => ({
-        id: p.SD_id,
-        date: (p.paymentDate || '').substring(0, 10),
-        datetime: p.paymentDate || '',
-        amount: parseFloat(p.amount) || 0,
-        currency: p.paymentType?.SD_id === 'd0_4' ? 'USD' : 'UZS',
-        paymentType: p.paymentType?.name || '',
-        paymentTypeId: p.paymentType?.SD_id || '',
-        clientName: p.client?.name || '',
-        clientId: p.client?.SD_id || '',
-        agentName: p.agent?.name || '',
-        agentId: p.agent?.SD_id || '',
-        comment: p.comment || '',
-        cashbox: p.cashbox?.name || ''
-    }));
+
+    // Mijoz nomlarini oldindan tayyorlash (client SD_id -> name)
+    const clientNameMap = {};
+    (serverCache.clients || []).forEach(c => {
+        clientNameMap[c.SD_id] = c.name || c.clientName || '';
+    });
+    // Agent nomlarini ham tayyorlash
+    const agentNameMap = {};
+    (serverCache.agents || []).forEach(a => {
+        agentNameMap[a.SD_id] = a.name || '';
+    });
+
+    const data = serverCache.payments.map(p => {
+        const clientId = p.client?.SD_id || p.client?.CS_id || '';
+        const agentId = p.agent?.SD_id || p.agent?.CS_id || '';
+        // SD API da payment.client.name ko'pincha null bo'ladi, clientName yoki cache dan olish kerak
+        const clientName = p.client?.clientName || p.client?.name || clientNameMap[clientId] || '';
+        const agentName = p.agent?.name || agentNameMap[agentId] || '';
+        const paymentTypeId = p.paymentType?.SD_id || '';
+        // currency_id ni aniqlash
+        const currency_id = paymentTypeId;
+        const currency = paymentTypeId === 'd0_4' ? 'USD' : 'UZS';
+
+        return {
+            id: p.SD_id,
+            date: (p.paymentDate || '').substring(0, 10),
+            amount: parseFloat(p.amount) || 0,
+            currency,
+            currency_id,
+            client: clientName,
+            client_id: clientId,
+            comment: p.comment || '',
+            type: p.transactionType || '',
+        };
+    });
     res.setHeader('Content-Type', 'application/json');
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.json(data);
 });
 
-// 📥 Yuk kirimi (Zakupka / Prixod)
+// 📥 Yuk kirimi (Zakupka / Prixod hujjatlar)
 app.get('/api/export/purchases', (req, res) => {
     if (!serverCache.purchases) return res.json({ error: 'Cache tayyor emas' });
     const data = [];
     serverCache.purchases.forEach(p => {
         const docDate = (p.date || '').substring(0, 10);
-        const currency = (p.priceType?.name || '').includes('$') ? 'USD' : 'UZS';
+        const priceTypeName = p.priceType?.name || '';
+        const isUSD = priceTypeName.includes('$') || priceTypeName.toLowerCase().includes('dollar');
+        const currency = isUSD ? 'USD' : 'UZS';
         (p.detail || []).forEach(item => {
             data.push({
                 docId: p.SD_id || p.purchase_id,
                 docDate,
-                docDatetime: p.date || '',
                 shipper: p.shipper?.name || '',
                 warehouse: p.name || '',
-                priceType: p.priceType?.name || '',
+                priceType: priceTypeName,
                 currency,
                 productId: item.SD_id,
                 productName: item.name || '',
                 quantity: parseFloat(item.quantity) || 0,
                 price: parseFloat(item.price) || 0,
-                amount: parseFloat(item.amount) || 0
+                amount: (parseFloat(item.price) || 0) * (parseFloat(item.quantity) || 0)
             });
         });
     });
@@ -2240,75 +2261,119 @@ app.get('/api/export/purchases', (req, res) => {
     res.json(data);
 });
 
-// 🏷 Mahsulotlar va ostatka
+// 🏷 Mahsulotlar ro'yxati va Ostatka
 app.get('/api/export/products', (req, res) => {
     if (!serverCache.products) return res.json({ error: 'Cache tayyor emas' });
-    // serverCache.stock endi { SD_id: quantity } object
-    const stockMap = (serverCache.stock && !Array.isArray(serverCache.stock)) ? serverCache.stock : {};
-    const data = serverCache.products.map(p => ({
-        id: p.SD_id,
-        name: p.name || '',
-        unit: p.unit?.name || '',
-        groupName: p.group?.name || '',
-        groupId: p.group?.SD_id || '',
-        barcode: p.barcode || '',
-        stock: stockMap[p.SD_id] || 0
-    }));
+    // serverCache.stock = { SD_id: quantity } object
+    const stockMap = (serverCache.stock && typeof serverCache.stock === 'object' && !Array.isArray(serverCache.stock))
+        ? serverCache.stock : {};
+
+    // Catalog narxlardan sotish narxni olish (agar mavjud bo'lsa)
+    const catalogPrices = serverCache.catalogPrices?.productPrices || {};
+    // Tan narxlardan ham olish
+    const costPrices = serverCache.costPrices || {};
+
+    const data = serverCache.products.map(p => {
+        const productId = p.SD_id;
+        // Narx: catalogdan eng katta UZS sotish narxni olish
+        let price = 0;
+        const pricesForProduct = catalogPrices[productId];
+        if (pricesForProduct) {
+            // Eng katta narxni topish (odatda sotish narxi)
+            Object.values(pricesForProduct).forEach(pr => {
+                const v = parseFloat(pr) || 0;
+                if (v > price) price = v;
+            });
+        }
+        // Agar catalog narx bo'lmasa, tan narxdan olish
+        if (price === 0 && costPrices[productId]) {
+            price = costPrices[productId].costPriceUZS || 0;
+        }
+
+        // Category va subcategory: SD API da group sifatida keladi
+        // group.name "Bolalar mahsulotlari" kabi
+        const category = p.category?.name || p.group?.name || '';
+        const subcategory = p.subcategory?.name || '';
+
+        return {
+            id: productId,
+            category,
+            name: p.name || '',
+            price: Math.round(price * 100) / 100,
+            stock: stockMap[productId] || 0,
+            subcategory,
+            unit: p.unit?.name || '',
+        };
+    });
     res.setHeader('Content-Type', 'application/json');
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.json(data);
 });
 
-// 📦 Sotuvlar (Buyurtmalar)
+// 📦 Sotuvlar (Buyurtmalar) — har bir buyurtma bitta qator
 app.get('/api/export/orders', (req, res) => {
+    if (!serverCache.orders) return res.json({ error: 'Cache tayyor emas' });
+
+    // Mijoz va agent nomlarini cache dan oldindan tayyorlash
+    const clientNameMap = {};
+    (serverCache.clients || []).forEach(c => {
+        clientNameMap[c.SD_id] = c.name || c.clientName || '';
+    });
+    const agentNameMap = {};
+    (serverCache.agents || []).forEach(a => {
+        agentNameMap[a.SD_id] = a.name || '';
+    });
+
+    const data = serverCache.orders.map(o => {
+        const status = parseInt(o.status) || 0;
+        const totalSumma = parseFloat(o.totalSumma) || 0;
+        const clientId = o.client?.SD_id || '';
+        const agentId = o.agent?.SD_id || '';
+        const clientName = o.client?.clientName || o.client?.name || clientNameMap[clientId] || '';
+        const agentName = o.agent?.name || agentNameMap[agentId] || '';
+        const currency = o.paymentType?.SD_id === 'd0_4' ? 'USD' : 'UZS';
+
+        return {
+            id: o.SD_id,
+            date: (o.dateCreate || o.dateDocument || '').substring(0, 10),
+            status,
+            clientId,
+            clientName,
+            agentId,
+            agentName,
+            currency,
+            totalAmount: totalSumma,
+            payment: o.paymentType?.name || '',
+        };
+    });
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.json(data);
+});
+
+// 📦 Sotuvlar tafsilot (har bir mahsulot alohida qator)
+app.get('/api/export/order-items', (req, res) => {
     if (!serverCache.orders) return res.json({ error: 'Cache tayyor emas' });
     const data = [];
     serverCache.orders.forEach(o => {
         const orderDate = (o.dateCreate || o.dateDocument || '').substring(0, 10);
         const status = parseInt(o.status) || 0;
-        const totalSumma = parseFloat(o.totalSumma) || 0;
         const currency = o.paymentType?.SD_id === 'd0_4' ? 'USD' : 'UZS';
         (o.orderProducts || []).forEach(item => {
             data.push({
                 orderId: o.SD_id,
                 orderDate,
-                orderDatetime: o.dateCreate || '',
-                statusCode: status,
-                statusName: status === 1 ? 'Yangi' : status === 2 ? 'Jarayonda' : status === 3 ? 'Yetkazilgan' : status === 4 ? 'Qaytarilgan' : status === 5 ? 'Bekor' : 'Noma\'lum',
-                clientName: o.client?.name || '',
+                status,
                 clientId: o.client?.SD_id || '',
-                agentName: o.agent?.name || '',
                 agentId: o.agent?.SD_id || '',
                 currency,
-                paymentType: o.paymentType?.name || '',
                 productId: item.product?.SD_id || '',
                 productName: item.product?.name || item.name || '',
                 quantity: parseFloat(item.quantity) || 0,
                 price: parseFloat(item.price) || 0,
                 summa: parseFloat(item.summa) || 0,
-                discount: parseFloat(item.discount) || 0
             });
         });
-        // Agar orderProducts bo'sh bo'lsa — faqat header ma'lumot
-        if (!(o.orderProducts && o.orderProducts.length > 0)) {
-            data.push({
-                orderId: o.SD_id,
-                orderDate,
-                orderDatetime: o.dateCreate || '',
-                statusCode: status,
-                statusName: status === 1 ? 'Yangi' : status === 2 ? 'Jarayonda' : status === 3 ? 'Yetkazilgan' : status === 4 ? 'Qaytarilgan' : status === 5 ? 'Bekor' : 'Noma\'lum',
-                clientName: o.client?.name || '',
-                clientId: o.client?.SD_id || '',
-                agentName: o.agent?.name || '',
-                agentId: o.agent?.SD_id || '',
-                currency,
-                paymentType: o.paymentType?.name || '',
-                productId: '', productName: '',
-                quantity: 0, price: 0,
-                summa: totalSumma,
-                discount: 0
-            });
-        }
     });
     res.setHeader('Content-Type', 'application/json');
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -2318,21 +2383,23 @@ app.get('/api/export/orders', (req, res) => {
 // 💸 Rasxodlar (Chiqimlar)
 app.get('/api/export/consumption', (req, res) => {
     if (!serverCache.consumption) return res.json({ error: 'Cache tayyor emas' });
-    const data = serverCache.consumption.map(c => ({
-        id: c.SD_id,
-        date: (c.date || '').substring(0, 10),
-        datetime: c.date || '',
-        summa: parseFloat(c.summa) || 0,
-        currency: c.paymentType?.SD_id === 'd0_4' ? 'USD' : 'UZS',
-        comment: c.comment || '',
-        type: c.type || '',
-        categoryParent: c.category_parent?.name || '',
-        categoryParentId: c.category_parent?.SD_id || '',
-        categoryChild: c.category_child?.name || '',
-        categoryChildId: c.category_child?.SD_id || '',
-        cashbox: c.cashbox?.name || '',
-        paymentType: c.paymentType?.name || ''
-    }));
+    const data = serverCache.consumption.map(c => {
+        // Summani to'g'ri olish - ko'p variantlarni tekshirish
+        const amount = parseFloat(c.summa) || parseFloat(c.amount) || parseFloat(c.totalSumma) || 0;
+        const paymentTypeId = c.paymentType?.SD_id || '';
+        const currency = paymentTypeId === 'd0_4' ? 'USD' : 'UZS';
+
+        return {
+            id: c.SD_id,
+            date: (c.date || '').substring(0, 10),
+            amount,
+            currency,
+            currency_id: paymentTypeId,
+            category: c.category_parent?.name || '',
+            subcategory: c.category_child?.name || '',
+            comment: c.comment || '',
+        };
+    });
     res.setHeader('Content-Type', 'application/json');
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.json(data);
@@ -2368,7 +2435,7 @@ app.get('/api/export/clients', (req, res) => {
     if (!serverCache.clients) return res.json({ error: 'Cache tayyor emas' });
     const data = serverCache.clients.map(c => ({
         id: c.SD_id,
-        name: c.name || '',
+        name: c.name || c.clientName || '',
         phone: c.phone || c.phones?.[0] || '',
         address: c.address || '',
         groupName: c.group?.name || '',
