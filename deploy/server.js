@@ -46,6 +46,7 @@ let serverCache = {
     agents: null,           // Agentlar
     transactions: null,     // Web panel transactions (SROK bilan!)
     catalogPrices: null,    // Web paneldan barcha narxlar (product -> priceType -> price)
+    shipperDebts: null,     // Web paneldan pastavshiklar oboroti (shipperFinans/report)
     stats: null,            // Hisoblangan statistika
     lastUpdate: null,       // Oxirgi yangilanish
     isLoading: false,       // Yuklanish holati
@@ -139,6 +140,104 @@ async function webLogin() {
     } catch (error) {
         console.error('❌ Web login xatosi:', error.message);
         return false;
+    }
+}
+
+// 🏭 Web paneldan "Обороты по поставщикам" ma'lumotini olish
+async function fetchShipperFinans() {
+    try {
+        const { serverUrl } = CACHE_CONFIG.API_CREDENTIALS;
+        const webBase = `https://${serverUrl}`;
+        const cookieStr = Object.keys(webSessionCookies).map(k => k + '=' + webSessionCookies[k]).join('; ');
+
+        // 1. Sahifani ochish (session uchun)
+        await fetch(webBase + '/clients/shipperFinans/report', {
+            headers: { 'Cookie': cookieStr, 'User-Agent': 'Mozilla/5.0' }
+        });
+
+        const result = { uzs: null, usd: null };
+
+        // 2. UZS — filtrsiz (barcha valyutalar birgalikda = SD umumiy qarzdorlik)
+        //    d0_2 yoki d0_3 alohida emas: SD sahifasi default holda barcha ko'rsatadi
+        const resUZS = await fetch(webBase + '/clients/shipperFinans/AjaxReport', {
+            headers: { 'Cookie': cookieStr, 'User-Agent': 'Mozilla/5.0', 'X-Requested-With': 'XMLHttpRequest' }
+        });
+        const jsonUZS = JSON.parse(await resUZS.text());
+        if (jsonUZS.data) {
+            result.uzs = jsonUZS.data;
+            console.log(`   ✅ UZS (umumiy): ${result.uzs.length} ta pastavshik`);
+        }
+
+        // 3. USD alohida (d0_4 = Доллар США)
+        const resUSD = await fetch(webBase + '/clients/shipperFinans/AjaxReport?currency%5B%5D=d0_4', {
+            headers: { 'Cookie': cookieStr, 'User-Agent': 'Mozilla/5.0', 'X-Requested-With': 'XMLHttpRequest' }
+        });
+        const jsonUSD = JSON.parse(await resUSD.text());
+        if (jsonUSD.data) {
+            result.usd = jsonUSD.data;
+            console.log(`   ✅ USD: ${result.usd.length} ta pastavshik`);
+        }
+
+        return result;
+    } catch (error) {
+        console.error('   ❌ ShipperFinans yuklanmadi:', error.message);
+        return null;
+    }
+}
+
+// 💰 Web paneldan kassaIncome (real pul kirimlari) olish
+async function fetchKassaIncome(startDate, endDate) {
+    try {
+        const { serverUrl } = CACHE_CONFIG.API_CREDENTIALS;
+        const webBase = `https://${serverUrl}`;
+        const cookieStr = Object.keys(webSessionCookies).map(k => k + '=' + webSessionCookies[k]).join('; ');
+
+        const url = `${webBase}/dashboard/kassaIncome?dateStart=${startDate}&dateEnd=${endDate}`;
+        const res = await fetch(url, {
+            headers: { 'Cookie': cookieStr, 'User-Agent': 'Mozilla/5.0' }
+        });
+        const html = await res.text();
+
+        // HTML'dan summalarni parse qilish
+        // Table format: <td>Наличный Cум</td>\n<td>72,346,788.04</td>
+        const parseAmount = (label) => {
+            // Box format: <b>72,346,788.04</b>...label
+            const boxPattern = new RegExp(`<b>([\\d,]+\\.?\\d*)</b>[\\s\\S]{0,100}?${label}`, 'i');
+            const boxMatch = html.match(boxPattern);
+            if (boxMatch) return parseFloat(boxMatch[1].replace(/,/g, '')) || 0;
+
+            // Table format: <td>label</td>....<td>amount</td>
+            const tablePattern = new RegExp(`${label}[\\s\\S]{0,50}?<\\/td>\\s*<td[^>]*>([\\d,]+\\.?\\d*)`, 'i');
+            const tableMatch = html.match(tablePattern);
+            if (tableMatch) return parseFloat(tableMatch[1].replace(/,/g, '')) || 0;
+
+            return 0;
+        };
+
+        const cashUZS = parseAmount('Наличный');
+        const bankUZS = parseAmount('Безналичный');
+        const usd = parseAmount('Доллар');
+
+        // Общий — alohida parse (th ichida)
+        let total = 0;
+        const totalMatch = html.match(/<th[^>]*>([\d,]+\.?\d*)<\/th>\s*$/m) ||
+                           html.match(/Общий[\s\S]{0,100}?([\d,]{5,}\.?\d*)/);
+        if (totalMatch) total = parseFloat(totalMatch[1].replace(/,/g, '')) || 0;
+
+        const result = {
+            cashUZS,     // Наличный Сум
+            bankUZS,     // Безналичный Сум
+            totalUZS: cashUZS + bankUZS,  // Jami so'mda
+            totalUSD: usd,               // Доллар США
+            grandTotal: total || (cashUZS + bankUZS),  // Общий (сум)
+            source: 'web_panel'
+        };
+
+        console.log(`   ✅ KassaIncome: ${Math.round(result.totalUZS).toLocaleString()} so'm + $${result.totalUSD.toLocaleString()}`);
+        return result;
+    } catch (error) {
+        console.error('   ❌ KassaIncome yuklanmadi:', error.message);
+        return null;
     }
 }
 
@@ -507,6 +606,14 @@ async function refreshCache() {
                 console.log(`   ✅ ${totalPrices} ta mahsulot narxi yuklandi`);
             } catch (err) {
                 console.log(`   ⚠️ Catalog narxlar yuklanmadi: ${err.message}`);
+            }
+
+            // 8.7. Web paneldan pastavshiklar oborotini olish
+            console.log('🏭 Pastavshiklar oboroti yuklanmoqda (web panel)...');
+            try {
+                serverCache.shipperDebts = await fetchShipperFinans();
+            } catch (err) {
+                console.log(`   ⚠️ ShipperFinans yuklanmadi: ${err.message}`);
             }
         } else {
             console.log('   ⚠️ Web login muvaffaqiyatsiz, srok eski hisoblanadi');
@@ -999,6 +1106,102 @@ app.get('/api/cache/orders', (req, res) => {
 });
 
 // Qarzlar
+// Pastavshiklar qarzdorligi — web paneldan "Обороты по поставщикам" (AjaxReport)
+// Format: { uzs: [[name, nach, deb, cred, end, id]], usd: [...] }
+app.get('/api/cache/supplier-debts', (req, res) => {
+    const shipperData = serverCache.shipperDebts;
+    
+    if (!shipperData || (!shipperData.uzs && !shipperData.usd)) {
+        return res.json({ status: false, error: 'ShipperFinans hali yuklanmagan' });
+    }
+
+    let totalDebtUZS = 0;
+    let totalDebtUSD = 0;
+    const supplierList = [];
+
+    // UZS pastavshiklarni ishlash
+    if (shipperData.uzs && Array.isArray(shipperData.uzs)) {
+        shipperData.uzs.forEach(row => {
+            if (!Array.isArray(row) || row.length < 5) return;
+            const name = String(row[0] || '').replace(/<[^>]*>/g, '').trim();
+            const nachSaldo = parseFloat(row[1]) || 0;
+            const debit = parseFloat(row[2]) || 0;
+            const credit = parseFloat(row[3]) || 0;
+            const endSaldo = parseFloat(row[4]) || 0;
+            
+            if (!name || name === 'Итого' || name === 'Итог') return;
+
+            totalDebtUZS += endSaldo;
+            supplierList.push({
+                name,
+                nachSaldo,
+                debit,
+                credit,
+                endSaldo,
+                balanceUZS: endSaldo,
+                balanceUSD: 0,
+                currency: 'UZS'
+            });
+        });
+    }
+
+    // USD pastavshiklarni ishlash
+    if (shipperData.usd && Array.isArray(shipperData.usd)) {
+        shipperData.usd.forEach(row => {
+            if (!Array.isArray(row) || row.length < 5) return;
+            const name = String(row[0] || '').replace(/<[^>]*>/g, '').trim();
+            const nachSaldo = parseFloat(row[1]) || 0;
+            const debit = parseFloat(row[2]) || 0;
+            const credit = parseFloat(row[3]) || 0;
+            const endSaldo = parseFloat(row[4]) || 0;
+            
+            if (!name || name === 'Итого' || name === 'Итог') return;
+
+            totalDebtUSD += endSaldo;
+            
+            // Agar bunday ismli pastavshik allaqachon UZS da bo'lsa, qarzini birlashtirish
+            const existingIndex = supplierList.findIndex(s => s.name === name);
+            if (existingIndex !== -1) {
+                supplierList[existingIndex].balanceUSD = endSaldo;
+            } else {
+                supplierList.push({
+                    name,
+                    nachSaldo,
+                    debit,
+                    credit,
+                    endSaldo,
+                    balanceUZS: 0,
+                    balanceUSD: endSaldo,
+                    currency: 'USD'
+                });
+            }
+        });
+    }
+
+    // Qarzdorlar (manfiy saldo) — eng kattasini tepaga
+    const sorted = supplierList
+        .filter(s => s.balanceUZS < 0 || s.balanceUSD < 0)
+        .sort((a, b) => {
+            // Asosan USD valyutasini oldinga olib kelishadi odatda.
+            // Yoki qarz miqdori bo'yicha saralash
+            if (a.balanceUSD !== b.balanceUSD) return a.balanceUSD - b.balanceUSD;
+            return a.balanceUZS - b.balanceUZS;
+        })
+        .slice(0, 100);
+
+    res.json({
+        status: true,
+        result: {
+            totalDebtUZS,
+            totalDebtUSD,
+            supplierCount: supplierList.length,
+            debtorCount: sorted.length,
+            suppliers: sorted
+        },
+        lastUpdate: serverCache.lastUpdate
+    });
+});
+
 app.get('/api/cache/balances', (req, res) => {
     if (!serverCache.balances) {
         return res.json({ status: false, error: 'Cache hali tayyor emas' });
@@ -1238,39 +1441,53 @@ app.get('/api/cache/payments', (req, res) => {
 });
 
 // Kassa - period bo'yicha to'lovlar statistikasi
-app.get('/api/cache/kassa/:period', (req, res) => {
+// ⚡ Web paneldan kassaIncome (real data) + getPayment (agent drill-down)
+app.get('/api/cache/kassa/:period', async (req, res) => {
     const period = req.params.period || 'today';
 
-    if (!serverCache.payments) {
-        return res.json({ status: false, error: 'Cache hali tayyor emas' });
+    let dateRange;
+    if (period === 'custom' && req.query.startDate && req.query.endDate) {
+        dateRange = { startDate: req.query.startDate, endDate: req.query.endDate };
+    } else {
+        dateRange = getDateRange(period);
     }
 
-    const dateRange = getDateRange(period);
+    // 1. Web paneldan real kassaIncome olish (SD bilan mos)
+    let webTotals = null;
+    try {
+        // Web session mavjudligini tekshirish
+        if (Object.keys(webSessionCookies).length > 0) {
+            webTotals = await fetchKassaIncome(dateRange.startDate, dateRange.endDate);
+        } else {
+            // Web login qilish
+            const loggedIn = await webLogin();
+            if (loggedIn) {
+                webTotals = await fetchKassaIncome(dateRange.startDate, dateRange.endDate);
+            }
+        }
+    } catch (err) {
+        console.error('KassaIncome web fetch xatosi:', err.message);
+    }
+
+    // 2. getPayment dan agent drill-down uchun ma'lumot
     const agents = serverCache.agents || [];
     const clients = serverCache.clients || [];
+    const payments = serverCache.payments || [];
 
-    // Agent va mijoz nomlarini oldindan tayyorlash
     const agentNames = {};
-    agents.forEach(a => {
-        agentNames[a.SD_id] = a.name || 'Noma\'lum';
-    });
-
+    agents.forEach(a => { agentNames[a.SD_id] = a.name || 'Noma\'lum'; });
     const clientNames = {};
-    clients.forEach(c => {
-        clientNames[c.SD_id] = c.name || 'Noma\'lum';
-    });
+    clients.forEach(c => { clientNames[c.SD_id] = c.name || 'Noma\'lum'; });
 
-    // Dollar to'lov turlari
     const dollarPayTypes = new Set(['d0_4']);
 
-    // To'lovlarni sana bo'yicha filtrlash
-    const filteredPayments = serverCache.payments.filter(p => {
+    const filteredPayments = payments.filter(p => {
         const payDate = (p.paymentDate || '').split('T')[0].split(' ')[0];
         return payDate >= dateRange.startDate && payDate <= dateRange.endDate;
     });
 
-    let totalUZS = 0;
-    let totalUSD = 0;
+    let apiTotalUZS = 0;
+    let apiTotalUSD = 0;
     const agentPayments = {};
 
     filteredPayments.forEach(p => {
@@ -1280,52 +1497,24 @@ app.get('/api/cache/kassa/:period', (req, res) => {
         const payTypeId = p.paymentType?.SD_id || '';
         const agentId = p.agent?.SD_id || 'unknown';
         const clientId = p.client?.SD_id || 'unknown';
-
         const isDollar = dollarPayTypes.has(payTypeId);
 
-        if (isDollar) {
-            totalUSD += amount;
-        } else {
-            totalUZS += amount;
-        }
+        if (isDollar) { apiTotalUSD += amount; } else { apiTotalUZS += amount; }
 
-        // Agent statistikasi
         if (!agentPayments[agentId]) {
-            agentPayments[agentId] = {
-                name: agentNames[agentId] || 'Noma\'lum',
-                totalUZS: 0,
-                totalUSD: 0,
-                count: 0,
-                clientPayments: {}
-            };
+            agentPayments[agentId] = { name: agentNames[agentId] || 'Noma\'lum', totalUZS: 0, totalUSD: 0, count: 0, clientPayments: {} };
         }
-
-        if (isDollar) {
-            agentPayments[agentId].totalUSD += amount;
-        } else {
-            agentPayments[agentId].totalUZS += amount;
-        }
+        if (isDollar) { agentPayments[agentId].totalUSD += amount; } else { agentPayments[agentId].totalUZS += amount; }
         agentPayments[agentId].count++;
 
-        // Mijoz statistikasi (agent ichida)
         if (!agentPayments[agentId].clientPayments[clientId]) {
-            agentPayments[agentId].clientPayments[clientId] = {
-                name: clientNames[clientId] || clientId,
-                totalUZS: 0,
-                totalUSD: 0,
-                count: 0
-            };
+            agentPayments[agentId].clientPayments[clientId] = { name: clientNames[clientId] || clientId, totalUZS: 0, totalUSD: 0, count: 0 };
         }
-
-        if (isDollar) {
-            agentPayments[agentId].clientPayments[clientId].totalUSD += amount;
-        } else {
-            agentPayments[agentId].clientPayments[clientId].totalUZS += amount;
-        }
+        if (isDollar) { agentPayments[agentId].clientPayments[clientId].totalUSD += amount; }
+        else { agentPayments[agentId].clientPayments[clientId].totalUZS += amount; }
         agentPayments[agentId].clientPayments[clientId].count++;
     });
 
-    // Agentlarni jami bo'yicha saralash va mijozlarni array ga aylantirish
     const agentList = Object.entries(agentPayments)
         .map(([id, data]) => {
             const clientList = Object.entries(data.clientPayments)
@@ -1335,13 +1524,20 @@ app.get('/api/cache/kassa/:period', (req, res) => {
         })
         .sort((a, b) => (b.totalUZS + b.totalUSD * 12200) - (a.totalUZS + a.totalUSD * 12200));
 
+    // 3. Web panel datani asosiy qilib, getPayment ni fallback sifatida ishlatish
+    const totalUZS = webTotals ? webTotals.totalUZS : apiTotalUZS;
+    const totalUSD = webTotals ? webTotals.totalUSD : apiTotalUSD;
+
     res.json({
         status: true,
         result: {
             totalUZS,
             totalUSD,
+            cashUZS: webTotals?.cashUZS || 0,
+            bankUZS: webTotals?.bankUZS || 0,
             totalPayments: filteredPayments.length,
-            agents: agentList
+            agents: agentList,
+            source: webTotals ? 'web_panel' : 'api_fallback'
         },
         lastUpdate: serverCache.lastUpdate
     });
@@ -1421,16 +1617,23 @@ app.get('/api/cache/consumption/:period', async (req, res) => {
             parent = c.category.name || c.category.title;
         }
 
-        const catName = child ? `${parent} | ${child}` : parent;
+        const catName = parent;
 
-        if (!byCategory[catName]) byCategory[catName] = { uzs: 0, usd: 0, count: 0, parent };
+        if (!byCategory[catName]) byCategory[catName] = { uzs: 0, usd: 0, count: 0, parent, items: [] };
         if (isUSD) byCategory[catName].usd += summa;
         else byCategory[catName].uzs += summa;
         byCategory[catName].count++;
+        byCategory[catName].items.push({
+            child: child || parent,
+            date: c.date || c.dateCreate || '',
+            sum: summa,
+            currency: isUSD ? 'USD' : 'UZS',
+            comment: c.comment || c.description || ''
+        });
     });
 
     const categories = Object.entries(byCategory)
-        .map(([name, v]) => ({ name, totalUZS: v.uzs, totalUSD: v.usd, count: v.count, parent: v.parent }))
+        .map(([name, v]) => ({ name, totalUZS: v.uzs, totalUSD: v.usd, count: v.count, parent: v.parent, items: v.items }))
         .sort((a, b) => (b.totalUZS + b.totalUSD * USD_RATE) - (a.totalUZS + a.totalUSD * USD_RATE));
 
     res.json({
@@ -2207,6 +2410,270 @@ app.get('/api/cache/prixod/:period', (req, res) => {
 // Bosh sahifa
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'index.html'));
+});
+
+// ============================================================
+// 📊 POWER BI EXPORT ENDPOINTS
+// URL: /api/export/<nomi>
+// ============================================================
+
+// Qarzlar (Balans) — Power BI
+app.get('/api/export/balances', (req, res) => {
+    if (!serverCache.balances) return res.json([]);
+    const rows = serverCache.balances.map(b => {
+        let balUZS = 0, balUSD = 0;
+        const byCurrency = b['by-currency'] || [];
+        byCurrency.forEach(c => {
+            const amt = parseFloat(c.amount) || 0;
+            if (c.currency_id === 'd0_4') balUSD += amt;
+            else balUZS += amt;
+        });
+        if (byCurrency.length === 0) balUZS = parseFloat(b.balance) || 0;
+        return {
+            clientId: b.SD_id || '',
+            clientName: b.name || '',
+            balanceUZS: balUZS,
+            balanceUSD: balUSD,
+        };
+    });
+    res.json(rows);
+});
+
+// Pul kirimi (To'lovlar) — Power BI
+app.get('/api/export/payments', (req, res) => {
+    if (!serverCache.payments) return res.json([]);
+
+    // Mijoz nomlarini oldindan tayyorlash
+    const clientNameMap = {};
+    (serverCache.clients || []).forEach(c => {
+        clientNameMap[c.SD_id] = c.name || c.clientName || '';
+    });
+
+    const rows = serverCache.payments.map(p => {
+        const clientId = p.client?.SD_id || p.client?.CS_id || '';
+        // SD API da payment.client.name ko'pincha null, clientName yoki cache dan
+        const clientName = p.client?.clientName || p.client?.name || clientNameMap[clientId] || '';
+        const paymentTypeId = p.paymentType?.SD_id || '';
+        const currency = paymentTypeId === 'd0_4' ? 'USD' : 'UZS';
+
+        return {
+            id: p.SD_id || '',
+            date: (p.paymentDate || p.date || '').substring(0, 10),
+            amount: parseFloat(p.amount) || 0,
+            currency,
+            currency_id: paymentTypeId,
+            client: clientName,
+            client_id: clientId,
+            comment: p.comment || '',
+            type: p.transactionType || p.type || '',
+        };
+    });
+    res.json(rows);
+});
+
+// Yuk kirimi (Sotib olishlar / Prixod) — Power BI
+app.get('/api/export/purchases', (req, res) => {
+    if (!serverCache.purchases) return res.json([]);
+    const rows = [];
+    serverCache.purchases.forEach(p => {
+        const docDate = (p.date || '').substring(0, 10);
+        const priceTypeName = p.priceType?.name || '';
+        const isUSD = priceTypeName.includes('$') || priceTypeName.toLowerCase().includes('dollar');
+        const currency = isUSD ? 'USD' : 'UZS';
+        (p.detail || []).forEach(item => {
+            rows.push({
+                docId: p.SD_id || p.purchase_id || '',
+                docDate,
+                shipper: p.shipper?.name || '',
+                warehouse: p.name || '',
+                priceType: priceTypeName,
+                currency,
+                productId: item.SD_id || '',
+                productName: item.name || '',
+                quantity: parseFloat(item.quantity) || 0,
+                price: parseFloat(item.price) || 0,
+                amount: (parseFloat(item.price) || 0) * (parseFloat(item.quantity) || 0),
+            });
+        });
+    });
+    res.json(rows);
+});
+
+// Rasxodlar (Xarajatlar) — Power BI
+app.get('/api/export/consumption', (req, res) => {
+    if (!serverCache.consumption) return res.json([]);
+    const rows = serverCache.consumption.map(c => {
+        // SD API da consumption.summa maydonida summa bor
+        const amount = parseFloat(c.summa) || parseFloat(c.sum) || parseFloat(c.amount) || 0;
+        const paymentTypeId = c.paymentType?.SD_id || '';
+        const currency = paymentTypeId === 'd0_4' ? 'USD' : 'UZS';
+
+        return {
+            id: c.SD_id || '',
+            date: (c.date || '').substring(0, 10),
+            amount,
+            currency,
+            currency_id: paymentTypeId,
+            category: c.category_parent?.name || c.categoryParent || '',
+            subcategory: c.category_child?.name || c.categoryChild || '',
+            comment: c.comment || '',
+        };
+    });
+    res.json(rows);
+});
+
+// Mahsulotlar ro'yxati va Ostatka — Power BI
+app.get('/api/export/products', (req, res) => {
+    if (!serverCache.products) return res.json([]);
+
+    // Stock mapping: serverCache.stock = warehouse[] array, har birida products[] bor
+    const stockMap = {};
+    const stockData = serverCache.stock || [];
+    if (Array.isArray(stockData)) {
+        stockData.forEach(wh => {
+            (wh.products || []).forEach(p => {
+                const id = p.SD_id || '';
+                if (id) stockMap[id] = (stockMap[id] || 0) + (parseFloat(p.quantity) || 0);
+            });
+        });
+    } else if (typeof stockData === 'object') {
+        // Agar object shaklida bo'lsa {SD_id: qty}
+        Object.entries(stockData).forEach(([id, qty]) => {
+            stockMap[id] = parseFloat(qty) || 0;
+        });
+    }
+
+    // Catalog narxlardan sotish narxini olish
+    const catalogPrices = serverCache.catalogPrices?.productPrices || {};
+    const costPrices = serverCache.costPrices || {};
+
+    const rows = serverCache.products.map(p => {
+        const productId = p.SD_id || '';
+        // Narx: catalogdan eng katta sotish narxni olish
+        let price = 0;
+        const pricesForProduct = catalogPrices[productId];
+        if (pricesForProduct) {
+            Object.values(pricesForProduct).forEach(pr => {
+                const v = parseFloat(pr) || 0;
+                if (v > price) price = v;
+            });
+        }
+        if (price === 0 && costPrices[productId]) {
+            price = costPrices[productId].costPriceUZS || 0;
+        }
+
+        return {
+            id: productId,
+            category: p.category?.name || p.group?.name || '',
+            name: p.name || '',
+            price: Math.round(price * 100) / 100,
+            stock: stockMap[productId] || 0,
+            subcategory: p.subcategory?.name || '',
+            unit: p.unit?.name || '',
+        };
+    });
+    res.json(rows);
+});
+
+// Sotuvlar (Buyurtmalar) — Power BI
+app.get('/api/export/orders', (req, res) => {
+    if (!serverCache.orders) return res.json([]);
+
+    // Mijoz va agent nomlarini cache dan oldindan tayyorlash
+    const clientNameMap = {};
+    (serverCache.clients || []).forEach(c => {
+        clientNameMap[c.SD_id] = c.name || c.clientName || '';
+    });
+    const agentNameMap = {};
+    (serverCache.agents || []).forEach(a => {
+        agentNameMap[a.SD_id] = a.name || '';
+    });
+
+    const rows = serverCache.orders.map(o => {
+        const status = parseInt(o.status) || 0;
+        // SD API da totalSumma maydonida jami summa bor
+        const totalAmount = parseFloat(o.totalSumma) || parseFloat(o.amount) || parseFloat(o.total) || 0;
+        const clientId = o.client?.SD_id || '';
+        const agentId = o.agent?.SD_id || '';
+        const clientName = o.client?.clientName || o.client?.name || clientNameMap[clientId] || '';
+        const agentName = o.agent?.name || agentNameMap[agentId] || '';
+        const currency = o.paymentType?.SD_id === 'd0_4' ? 'USD' : 'UZS';
+
+        return {
+            id: o.SD_id || '',
+            date: (o.dateCreate || o.dateDocument || o.date || '').substring(0, 10),
+            status,
+            clientId,
+            clientName,
+            agentId,
+            agentName,
+            currency,
+            totalAmount,
+            payment: o.paymentType?.name || '',
+        };
+    });
+    res.json(rows);
+});
+
+// Mijozlar (Katalog) — Power BI
+app.get('/api/export/clients', (req, res) => {
+    if (!serverCache.clients) return res.json([]);
+    const rows = serverCache.clients.map(c => ({
+        id: c.SD_id || '',
+        name: c.name || c.clientName || '',
+        phone: c.phone || '',
+        address: c.address || '',
+        agentId: c.agent?.SD_id || '',
+        agentName: c.agent?.name || '',
+        territory: c.territory?.name || '',
+        category: c.category?.name || '',
+        created: c.created || c.date || '',
+    }));
+    res.json(rows);
+});
+
+// Pastavshiklar qarzdorligi — Power BI
+app.get('/api/export/supplier-debts', (req, res) => {
+    const shipperData = serverCache.shipperDebts;
+    if (!shipperData || (!shipperData.uzs && !shipperData.usd)) {
+        return res.json([]);
+    }
+
+    const rows = [];
+
+    if (shipperData.uzs && Array.isArray(shipperData.uzs)) {
+        shipperData.uzs.forEach(row => {
+            if (!Array.isArray(row) || row.length < 5) return;
+            const name = String(row[0] || '').replace(/<[^>]*>/g, '').trim();
+            if (!name || name === 'Итого' || name === 'Итог') return;
+            rows.push({
+                supplierName: name,
+                currency: 'UZS',
+                startBalance: parseFloat(row[1]) || 0,
+                debit: parseFloat(row[2]) || 0,
+                credit: parseFloat(row[3]) || 0,
+                endBalance: parseFloat(row[4]) || 0,
+            });
+        });
+    }
+
+    if (shipperData.usd && Array.isArray(shipperData.usd)) {
+        shipperData.usd.forEach(row => {
+            if (!Array.isArray(row) || row.length < 5) return;
+            const name = String(row[0] || '').replace(/<[^>]*>/g, '').trim();
+            if (!name || name === 'Итого' || name === 'Итог') return;
+            rows.push({
+                supplierName: name,
+                currency: 'USD',
+                startBalance: parseFloat(row[1]) || 0,
+                debit: parseFloat(row[2]) || 0,
+                credit: parseFloat(row[3]) || 0,
+                endBalance: parseFloat(row[4]) || 0,
+            });
+        });
+    }
+
+    res.json(rows);
 });
 
 // Serverni ishga tushirish
