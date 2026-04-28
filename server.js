@@ -2242,13 +2242,14 @@ app.get('/api/export/purchases', (req, res) => {
         const currency = isUSD ? 'USD' : 'UZS';
         (p.detail || []).forEach(item => {
             data.push({
-                docId: p.SD_id || p.purchase_id,
-                docDate,
+                id: p.SD_id || '',
+                date: docDate,
                 shipper: p.shipper?.name || '',
-                warehouse: p.name || '',
+                shipper_id: p.shipper?.SD_id || '',
+                store: p.name || '',
                 priceType: priceTypeName,
                 currency,
-                productId: item.SD_id,
+                productId: item.SD_id || '',
                 productName: item.name || '',
                 quantity: parseFloat(item.quantity) || 0,
                 price: parseFloat(item.price) || 0,
@@ -2785,6 +2786,49 @@ app.post('/api/balanceWithSrok', async (req, res) => {
             error: error.message
         });
     }
+});
+
+
+// 🏭 Pastavshiklar qarzdorligi — Power BI
+app.get('/api/export/supplier-debts', (req, res) => {
+    const shipperData = serverCache.shipperDebts;
+    if (!shipperData || (!shipperData.uzs && !shipperData.usd)) {
+        return res.json([]);
+    }
+    const rows = [];
+    if (shipperData.uzs && Array.isArray(shipperData.uzs)) {
+        shipperData.uzs.forEach(row => {
+            if (!Array.isArray(row) || row.length < 5) return;
+            const name = String(row[0] || '').replace(/<[^>]*>/g, '').trim();
+            if (!name || name === 'Итого' || name === 'Итог') return;
+            rows.push({
+                supplierName: name,
+                currency: 'UZS',
+                startBalance: parseFloat(row[1]) || 0,
+                debit: parseFloat(row[2]) || 0,
+                credit: parseFloat(row[3]) || 0,
+                endBalance: parseFloat(row[4]) || 0,
+            });
+        });
+    }
+    if (shipperData.usd && Array.isArray(shipperData.usd)) {
+        shipperData.usd.forEach(row => {
+            if (!Array.isArray(row) || row.length < 5) return;
+            const name = String(row[0] || '').replace(/<[^>]*>/g, '').trim();
+            if (!name || name === 'Итого' || name === 'Итог') return;
+            rows.push({
+                supplierName: name,
+                currency: 'USD',
+                startBalance: parseFloat(row[1]) || 0,
+                debit: parseFloat(row[2]) || 0,
+                credit: parseFloat(row[3]) || 0,
+                endBalance: parseFloat(row[4]) || 0,
+            });
+        });
+    }
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.json(rows);
 });
 
 // Bosh sahifa
