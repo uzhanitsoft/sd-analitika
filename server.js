@@ -2791,41 +2791,37 @@ app.post('/api/balanceWithSrok', async (req, res) => {
 
 // 🏭 Pastavshiklar qarzdorligi — Power BI
 app.get('/api/export/supplier-debts', (req, res) => {
-    const shipperData = serverCache.shipperDebts;
-    if (!shipperData || (!shipperData.uzs && !shipperData.usd)) {
+    const shippers = serverCache.shipperDebts;
+    if (!shippers || !Array.isArray(shippers) || shippers.length === 0) {
         return res.json([]);
     }
     const rows = [];
-    if (shipperData.uzs && Array.isArray(shipperData.uzs)) {
-        shipperData.uzs.forEach(row => {
-            if (!Array.isArray(row) || row.length < 5) return;
-            const name = String(row[0] || '').replace(/<[^>]*>/g, '').trim();
-            if (!name || name === 'Итого' || name === 'Итог') return;
+    shippers.forEach(s => {
+        // UZS qator
+        if (s.som && (s.som.balanceStart || s.som.weOwe || s.som.theyClosed || s.som.balanceEnd)) {
             rows.push({
-                supplierName: name,
+                supplierName: s.name || '',
+                supplierId: s.id || '',
                 currency: 'UZS',
-                startBalance: parseFloat(row[1]) || 0,
-                debit: parseFloat(row[2]) || 0,
-                credit: parseFloat(row[3]) || 0,
-                endBalance: parseFloat(row[4]) || 0,
+                startBalance: s.som.balanceStart || 0,
+                debit: s.som.weOwe || 0,
+                credit: s.som.theyClosed || 0,
+                endBalance: s.som.balanceEnd || 0,
             });
-        });
-    }
-    if (shipperData.usd && Array.isArray(shipperData.usd)) {
-        shipperData.usd.forEach(row => {
-            if (!Array.isArray(row) || row.length < 5) return;
-            const name = String(row[0] || '').replace(/<[^>]*>/g, '').trim();
-            if (!name || name === 'Итого' || name === 'Итог') return;
+        }
+        // USD qator
+        if (s.usd && (s.usd.balanceStart || s.usd.weOwe || s.usd.theyClosed || s.usd.balanceEnd)) {
             rows.push({
-                supplierName: name,
+                supplierName: s.name || '',
+                supplierId: s.id || '',
                 currency: 'USD',
-                startBalance: parseFloat(row[1]) || 0,
-                debit: parseFloat(row[2]) || 0,
-                credit: parseFloat(row[3]) || 0,
-                endBalance: parseFloat(row[4]) || 0,
+                startBalance: s.usd.balanceStart || 0,
+                debit: s.usd.weOwe || 0,
+                credit: s.usd.theyClosed || 0,
+                endBalance: s.usd.balanceEnd || 0,
             });
-        });
-    }
+        }
+    });
     res.setHeader('Content-Type', 'application/json');
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.json(rows);
