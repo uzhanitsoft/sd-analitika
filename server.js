@@ -457,7 +457,7 @@ async function fetchAllPaginated(method, resultKey, limit = 1000, maxPages = 20,
 async function fetchAllPayments() {
     let allPayments = [];
     let page = 1;
-    const maxPages = 10;
+    const maxPages = 50;
     const limit = 1000;
 
     while (page <= maxPages) {
