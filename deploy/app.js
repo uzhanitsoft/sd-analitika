@@ -2486,15 +2486,16 @@ class SalesDoctorApp {
             const productsData = await productsRes.json();
             const stockData = await stockRes.json();
 
-            const allProducts = (productsData.status && productsData.result?.product) ? productsData.result.product : [];
-            const warehouses = (stockData.status && stockData.result?.warehouse) ? stockData.result.warehouse : [];
+            const allProducts = Array.isArray(productsData?.result?.product) ? productsData.result.product : [];
+            const warehousesRaw = stockData?.result?.warehouse;
+            const warehouses = Array.isArray(warehousesRaw) ? warehousesRaw : [];
 
             console.log('🏷️ Jami mahsulotlar (cache):', allProducts.length);
 
             // Stock mapping
             const stockMap = {};
             warehouses.forEach(warehouse => {
-                const products = warehouse.products || [];
+                const products = Array.isArray(warehouse.products) ? warehouse.products : [];
                 products.forEach(item => {
                     const productId = item.SD_id;
                     const quantity = parseFloat(item.quantity) || 0;
@@ -2955,10 +2956,12 @@ class SalesDoctorApp {
             console.log('📥 Prixod bo\'lgan mahsulotlar (cache):', purchasedProductIds.size);
 
             // 2. Stock mapping
-            const warehouses = (stockData.status && stockData.result?.warehouse) ? stockData.result.warehouse : [];
+            const warehousesRaw2 = stockData?.result?.warehouse;
+            const warehouses = Array.isArray(warehousesRaw2) ? warehousesRaw2 : [];
             const stockMap = {};
             warehouses.forEach(warehouse => {
-                (warehouse.products || []).forEach(item => {
+                const wProducts = Array.isArray(warehouse.products) ? warehouse.products : [];
+                wProducts.forEach(item => {
                     const productId = item.SD_id;
                     const quantity = parseFloat(item.quantity) || 0;
                     stockMap[productId] = (stockMap[productId] || 0) + quantity;
