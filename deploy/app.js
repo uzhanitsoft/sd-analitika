@@ -452,6 +452,7 @@ class SalesDoctorApp {
             this.loadKassaStats(CACHE_BASE_URL);
             this.loadRasxodStats(CACHE_BASE_URL);
             this.loadPrixodStats(CACHE_BASE_URL);
+            this.loadSupplierDebt(CACHE_BASE_URL);
 
         } catch (error) {
             console.error('❌ Server cache xatosi:', error);
@@ -2478,8 +2479,8 @@ class SalesDoctorApp {
 
             // Mahsulotlar va stock ni parallel yuklash
             const [productsRes, stockRes] = await Promise.all([
-                this.fetchWithTimeout(`${CACHE_BASE_URL}/api/cache/products`, 5000),
-                this.fetchWithTimeout(`${CACHE_BASE_URL}/api/cache/stock`, 5000)
+                this.fetchWithTimeout(`${CACHE_BASE_URL}/api/cache/products`, 30000),
+                this.fetchWithTimeout(`${CACHE_BASE_URL}/api/cache/stock`, 30000)
             ]);
 
             const productsData = await productsRes.json();
@@ -2506,7 +2507,8 @@ class SalesDoctorApp {
             console.log('📦 Stock map (cache):', Object.keys(stockMap).length, 'ta mahsulot');
 
             if (allProducts.length === 0) {
-                grid.innerHTML = '<div style="text-align: center; padding: 40px; grid-column: 1/-1;">Mahsulot topilmadi</div>';
+                // Cache hali yuklanmagan bo'lishi mumkin
+                grid.innerHTML = '<div style="text-align: center; padding: 40px; grid-column: 1/-1; color: #f59e0b;">⏳ Server yangilanmoqda... 1-2 daqiqadan so\'ng qayta urinib ko\'ring</div>';
                 return;
             }
 
@@ -2522,7 +2524,11 @@ class SalesDoctorApp {
             this.renderProductsGrid(allProducts, stockMap);
         } catch (error) {
             console.error('Mahsulotlar yuklash xatosi:', error);
-            grid.innerHTML = '<div style="text-align: center; padding: 40px; grid-column: 1/-1; color: #ff3b30;">Xatolik yuz berdi</div>';
+            const errMsg = error.message || '';
+            const isTimeout = errMsg.includes('timeout') || errMsg.includes('Timeout');
+            grid.innerHTML = `<div style="text-align: center; padding: 40px; grid-column: 1/-1; color: ${isTimeout ? '#f59e0b' : '#ff3b30'};">` +
+                (isTimeout ? '⏳ Server javob bermadi. Sahifani yangilang (F5)' : '❌ Xatolik: ' + errMsg) +
+                '</div>';
         }
     }
 
@@ -2922,9 +2928,9 @@ class SalesDoctorApp {
 
             // Barchasini parallel yuklash
             const [purchasesRes, stockRes, productsRes] = await Promise.all([
-                this.fetchWithTimeout(`${CACHE_BASE_URL}/api/cache/purchases`, 5000),
-                this.fetchWithTimeout(`${CACHE_BASE_URL}/api/cache/stock`, 5000),
-                this.fetchWithTimeout(`${CACHE_BASE_URL}/api/cache/products`, 5000)
+                this.fetchWithTimeout(`${CACHE_BASE_URL}/api/cache/purchases`, 30000),
+                this.fetchWithTimeout(`${CACHE_BASE_URL}/api/cache/stock`, 30000),
+                this.fetchWithTimeout(`${CACHE_BASE_URL}/api/cache/products`, 30000)
             ]);
 
             const purchasesData = await purchasesRes.json();
@@ -2996,7 +3002,12 @@ class SalesDoctorApp {
 
         } catch (error) {
             console.error('Low stock yuklash xatosi:', error);
-            tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; padding: 40px; color: #ff3b30;">Xatolik yuz berdi</td></tr>';
+            const errMsg = error.message || '';
+            const isTimeout = errMsg.includes('timeout') || errMsg.includes('Timeout');
+            tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; padding: 40px; color: ' +
+                (isTimeout ? '#f59e0b' : '#ff3b30') + ';">' +
+                (isTimeout ? '⏳ Server javob bermadi. Sahifani yangilang (F5)' : '❌ Xatolik: ' + errMsg) +
+                '</td></tr>';
         }
     }
 
@@ -6009,19 +6020,41 @@ class SalesDoctorApp {
         }
 
         const categories = (data.categories || []);
-        const catRows = categories.map((c, i) => `
-            <tr style="border-bottom:1px solid rgba(255,255,255,0.06);">
-                <td style="padding:12px 16px;color:#6b7280;">${i + 1}</td>
-                <td style="padding:12px 16px;font-weight:500;">${c.name || 'Boshqa'}</td>
-                <td style="padding:12px 16px;text-align:right;color:#ef4444;">${Math.round(c.totalUZS || 0).toLocaleString('ru-RU')} <span style="color:#6b7280;font-size:11px;">so'm</span></td>
-                <td style="padding:12px 16px;text-align:right;color:#f97316;">$${Math.round(c.totalUSD || 0).toLocaleString()}</td>
-                <td style="padding:12px 16px;text-align:center;color:#a78bfa;">${c.count}</td>
-            </tr>`).join('');
+        const catRows = categories.map((c, i) => {
+            // Parent row (clickable)
+            const parentRow = `
+                <tr class="cat-parent-row" data-cat-id="cat_${i}" style="border-bottom:1px solid rgba(255,255,255,0.06);cursor:pointer;transition:background 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.05)'" onmouseout="this.style.background='transparent'">
+                    <td style="padding:12px 16px;color:#6b7280;">${i + 1}</td>
+                    <td style="padding:12px 16px;font-weight:600;"><span class="chevron" style="display:inline-block;transition:transform 0.2s;margin-right:8px;font-size:10px;">▶</span>${c.name || 'Boshqa'}</td>
+                    <td style="padding:12px 16px;text-align:right;color:#ef4444;">${Math.round(c.totalUZS || 0).toLocaleString('ru-RU')} <span style="color:#6b7280;font-size:11px;">so'm</span></td>
+                    <td style="padding:12px 16px;text-align:right;color:#f97316;">$${Math.round(c.totalUSD || 0).toLocaleString()}</td>
+                    <td style="padding:12px 16px;text-align:center;color:#a78bfa;">${c.count}</td>
+                </tr>`;
+
+            // Child rows (hidden by default)
+            const childRows = (c.items || []).map(item => {
+                const dt = (item.date || '').split('T')[0].split(' ')[0];
+                const sumStr = item.currency === 'USD'
+                    ? `$${Math.round(item.sum).toLocaleString()}`
+                    : `${Math.round(item.sum).toLocaleString('ru-RU')} so'm`;
+                const color = item.currency === 'USD' ? '#f97316' : '#ef4444';
+                return `
+                <tr class="cat-child-row cat_${i}" style="display:none;background:rgba(255,255,255,0.02);border-bottom:1px solid rgba(255,255,255,0.03);">
+                    <td style="padding:8px 16px;"></td>
+                    <td style="padding:8px 16px;color:#9ca3af;font-size:12px;padding-left:40px;">↳ ${item.child}</td>
+                    <td style="padding:8px 16px;text-align:right;color:${color};font-size:12px;">${sumStr}</td>
+                    <td style="padding:8px 16px;text-align:right;color:#6b7280;font-size:11px;">${item.comment || ''}</td>
+                    <td style="padding:8px 16px;text-align:center;color:#6b7280;font-size:11px;">${dt}</td>
+                </tr>`;
+            }).join('');
+
+            return parentRow + childRows;
+        }).join('');
 
         const overlay = document.createElement('div');
         overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9999;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px);';
         overlay.innerHTML = `
-            <div style="background:var(--bg-card,#1a1a2e);border-radius:20px;width:90%;max-width:850px;max-height:85vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 25px 60px rgba(0,0,0,0.5);border:1px solid rgba(255,255,255,0.1);">
+            <div style="background:var(--bg-card,#1a1a2e);border-radius:20px;width:90%;max-width:900px;max-height:85vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 25px 60px rgba(0,0,0,0.5);border:1px solid rgba(255,255,255,0.1);">
                 <div style="padding:24px 28px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid rgba(255,255,255,0.08);">
                     <div>
                         <h2 style="margin:0;font-size:22px;font-weight:700;color:white;">💸 Rasxodlar</h2>
@@ -6053,15 +6086,30 @@ class SalesDoctorApp {
                                 <th style="padding:14px 16px;text-align:left;font-size:11px;color:#6b7280;text-transform:uppercase;width:50px;">#</th>
                                 <th style="padding:14px 16px;text-align:left;font-size:11px;color:#6b7280;text-transform:uppercase;">Kategoriya</th>
                                 <th style="padding:14px 16px;text-align:right;font-size:11px;color:#6b7280;text-transform:uppercase;">So'm</th>
-                                <th style="padding:14px 16px;text-align:right;font-size:11px;color:#6b7280;text-transform:uppercase;">Dollar</th>
-                                <th style="padding:14px 16px;text-align:center;font-size:11px;color:#6b7280;text-transform:uppercase;width:80px;">Soni</th>
+                                <th style="padding:14px 16px;text-align:right;font-size:11px;color:#6b7280;text-transform:uppercase;">Dollar / Izoh</th>
+                                <th style="padding:14px 16px;text-align:center;font-size:11px;color:#6b7280;text-transform:uppercase;width:80px;">Soni / Sana</th>
                             </tr>
                         </thead>
                         <tbody>${catRows || '<tr><td colspan="5" style="padding:40px;text-align:center;color:#6b7280;">Ma\'lumot yo\'q</td></tr>'}</tbody>
                     </table>
                 </div>
             </div>`;
-        overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+
+        // Click handler for expanding/collapsing categories
+        overlay.addEventListener('click', (e) => {
+            if (e.target === overlay) { overlay.remove(); return; }
+            const parentRow = e.target.closest('.cat-parent-row');
+            if (parentRow) {
+                const catId = parentRow.dataset.catId;
+                const children = overlay.querySelectorAll(`.cat-child-row.${catId}`);
+                const chevron = parentRow.querySelector('.chevron');
+                const isOpen = children[0] && children[0].style.display !== 'none';
+                children.forEach(r => r.style.display = isOpen ? 'none' : 'table-row');
+                if (chevron) chevron.style.transform = isOpen ? 'rotate(0deg)' : 'rotate(90deg)';
+                parentRow.style.background = isOpen ? 'transparent' : 'rgba(168,85,247,0.06)';
+            }
+        });
+
         document.addEventListener('keydown', function escH(e) { if (e.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', escH); } });
         document.body.appendChild(overlay);
     }
@@ -6164,7 +6212,7 @@ class SalesDoctorApp {
 
             if (data.status && data.result) {
                 const r = data.result;
-                const userRate = this.getUsdRate();
+                this._kassaData = r;
                 const kassaUZSEl = document.getElementById('kassaTotalUZS');
                 const kassaUSDEl = document.getElementById('kassaTotalUSD');
 
@@ -6186,6 +6234,7 @@ class SalesDoctorApp {
 
             if (data.status && data.result) {
                 const r = data.result;
+                this._rasxodData = r;
                 const rasxodUZSEl = document.getElementById('rasxodTotalUZS');
                 const rasxodUSDEl = document.getElementById('rasxodTotalUSD');
 
@@ -6207,6 +6256,7 @@ class SalesDoctorApp {
 
             if (data.status && data.result) {
                 const r = data.result;
+                this._prixodData = r;
                 const prixodUZSEl = document.getElementById('prixodTotalUZS');
                 const prixodUSDEl = document.getElementById('prixodTotalUSD');
 
@@ -6218,6 +6268,98 @@ class SalesDoctorApp {
         } catch (e) {
             console.error('Prixod stats xatosi:', e.message);
         }
+    }
+
+    // ============ SUPPLIER DEBT (Pastavshiklarga Qarz widget) ============
+    async loadSupplierDebt(baseUrl) {
+        try {
+            const res = await this.fetchWithTimeout(`${baseUrl}/api/cache/supplier-debts`, 8000);
+            const data = await res.json();
+
+            if (data.status && data.result) {
+                const r = data.result;
+                this._supplierData = r;
+                const debtEl = document.getElementById('supplierTotalDebt');
+                const usdEl = document.getElementById('supplierUsdDebt');
+
+                if (debtEl) {
+                    const formatted = Math.round(Math.abs(r.totalDebtUZS)).toLocaleString('ru-RU');
+                    debtEl.textContent = r.totalDebtUZS < 0 ? `-${formatted}` : formatted;
+                }
+                if (usdEl) {
+                    const usdFormatted = Math.round(Math.abs(r.totalDebtUSD)).toLocaleString();
+                    usdEl.textContent = r.totalDebtUSD < 0 ? `-$${usdFormatted}` : `$${usdFormatted}`;
+                }
+
+                console.log(`🏭 Pastavshik qarz: ${Math.round(r.totalDebtUZS).toLocaleString()} so'm, $${Math.round(r.totalDebtUSD).toLocaleString()}`);
+            }
+        } catch (e) {
+            console.error('Supplier debt xatosi:', e.message);
+        }
+    }
+
+    // ============ SUPPLIER MODAL ============
+    openSupplierModal() {
+        const data = this._supplierData;
+        if (!data) {
+            this.showToast('error', 'Ma\'lumot yo\'q', 'Pastavshik ma\'lumotlari yuklanmagan');
+            return;
+        }
+
+        const suppliers = (data.suppliers || []).slice(0, 50);
+        const rows = suppliers.map((s, i) => {
+            const uzs = Math.round(s.balanceUZS || s.balance || 0).toLocaleString('ru-RU');
+            const usd = Math.round(s.balanceUSD || 0).toLocaleString();
+            const uzsColor = (s.balanceUZS || s.balance || 0) < 0 ? '#ef4444' : '#10b981';
+            const usdColor = (s.balanceUSD || 0) < 0 ? '#ef4444' : (s.balanceUSD || 0) > 0 ? '#10b981' : '#6b7280';
+            return `
+                <tr style="border-bottom:1px solid rgba(255,255,255,0.06);">
+                    <td style="padding:10px 14px;color:#6b7280;font-size:13px;">${i + 1}</td>
+                    <td style="padding:10px 14px;font-weight:500;font-size:13px;">${s.name}</td>
+                    <td style="padding:10px 14px;text-align:right;color:${uzsColor};font-size:13px;">${uzs}</td>
+                    <td style="padding:10px 14px;text-align:right;color:${usdColor};font-size:13px;">$${usd}</td>
+                </tr>`;
+        }).join('');
+
+        const noDataRow = '<tr><td colspan="4" style="text-align:center;padding:40px;color:#6b7280;">Qarzdor topilmadi</td></tr>';
+
+        const overlay = document.createElement('div');
+        overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9999;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px);';
+        overlay.innerHTML = `
+            <div style="background:var(--bg-card,#1a1a2e);border-radius:20px;width:90%;max-width:900px;max-height:85vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 25px 60px rgba(0,0,0,0.5);border:1px solid rgba(255,255,255,0.1);">
+                <div style="padding:24px 28px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid rgba(255,255,255,0.08);">
+                    <div>
+                        <h2 style="margin:0;font-size:20px;">🏭 Qarzdorlik Hisoboti</h2>
+                        <p style="margin:4px 0 0;color:#6b7280;font-size:13px;">${suppliers.length} ta qarzdor kontragent</p>
+                    </div>
+                    <button onclick="this.closest('div[style*=fixed]').remove()" style="background:rgba(255,255,255,0.1);border:none;color:#fff;width:36px;height:36px;border-radius:10px;cursor:pointer;font-size:18px;">✕</button>
+                </div>
+                <div style="padding:16px 28px;display:flex;gap:20px;border-bottom:1px solid rgba(255,255,255,0.05);">
+                    <div style="flex:1;padding:16px;background:rgba(239,68,68,0.1);border-radius:12px;text-align:center;">
+                        <div style="color:#6b7280;font-size:12px;">UZS Jami</div>
+                        <div style="color:#ef4444;font-size:18px;font-weight:700;margin-top:4px;">${Math.round(data.totalDebtUZS).toLocaleString('ru-RU')} so'm</div>
+                    </div>
+                    <div style="flex:1;padding:16px;background:rgba(59,130,246,0.1);border-radius:12px;text-align:center;">
+                        <div style="color:#6b7280;font-size:12px;">USD Jami</div>
+                        <div style="color:#3b82f6;font-size:18px;font-weight:700;margin-top:4px;">$${Math.round(data.totalDebtUSD).toLocaleString()}</div>
+                    </div>
+                </div>
+                <div style="flex:1;overflow-y:auto;padding:0 12px 20px;">
+                    <table style="width:100%;border-collapse:collapse;">
+                        <thead>
+                            <tr style="border-bottom:2px solid rgba(255,255,255,0.1);position:sticky;top:0;background:var(--bg-card,#1a1a2e);">
+                                <th style="padding:14px 14px;text-align:left;color:#6b7280;font-size:11px;text-transform:uppercase;">#</th>
+                                <th style="padding:14px 14px;text-align:left;color:#6b7280;font-size:11px;text-transform:uppercase;">Kontragent</th>
+                                <th style="padding:14px 14px;text-align:right;color:#6b7280;font-size:11px;text-transform:uppercase;">UZS</th>
+                                <th style="padding:14px 14px;text-align:right;color:#6b7280;font-size:11px;text-transform:uppercase;">USD</th>
+                            </tr>
+                        </thead>
+                        <tbody>${rows || noDataRow}</tbody>
+                    </table>
+                </div>
+            </div>`;
+        overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+        document.body.appendChild(overlay);
     }
 
 }
