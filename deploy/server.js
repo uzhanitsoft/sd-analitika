@@ -569,20 +569,23 @@ async function refreshCache() {
         serverCache.purchases = await fetchAllPaginated('getPurchase', 'warehouse', 500, 50);
         console.log(`   ✅ ${serverCache.purchases.length} ta prixod`);
 
-        // 6.5. Stock (ostatka) — warehouse array -> stockMap object
+        // 6.5. Stock (ostatka)
         console.log('📦 Stock yuklanmoqda...');
         const stockRes = await apiRequest('getStock', { limit: 10000 });
-        const warehouses = stockRes?.result?.warehouse || [];
+        const rawWarehouses = stockRes?.result?.warehouse || [];
+        // Raw array saqlash (app.js v54 uchun — warehouses.forEach ishlatadi)
+        serverCache.stock = rawWarehouses;
+        // StockMap ham saqlash (stats uchun)
         const stockMap = {};
-        warehouses.forEach(wh => {
+        rawWarehouses.forEach(wh => {
             (wh.products || []).forEach(p => {
                 const id = p.SD_id;
                 if (!stockMap[id]) stockMap[id] = 0;
                 stockMap[id] += parseFloat(p.quantity) || 0;
             });
         });
-        serverCache.stock = stockMap;
-        console.log(`   ✅ ${Object.keys(stockMap).length} ta mahsulot (stock)`);
+        serverCache.stockMap = stockMap;
+        console.log(`   ✅ ${rawWarehouses.length} ta sklad, ${Object.keys(stockMap).length} ta mahsulot`);
 
         // 7. Narx turlari
         console.log('💵 Narx turlari yuklanmoqda...');
@@ -1407,7 +1410,7 @@ app.get('/api/cache/priceCheck', (req, res) => {
     });
 });
 
-// Stock (ostatka)
+// Stock (ostatka) — raw warehouse array qaytaradi (app.js v54 uchun)
 app.get('/api/cache/stock', (req, res) => {
     if (!serverCache.stock) {
         return res.json({ status: false, error: 'Cache hali tayyor emas' });
@@ -1416,7 +1419,7 @@ app.get('/api/cache/stock', (req, res) => {
     res.json({
         status: true,
         result: { warehouse: serverCache.stock },
-        total: serverCache.stock.length,
+        total: Array.isArray(serverCache.stock) ? serverCache.stock.length : Object.keys(serverCache.stock).length,
         lastUpdate: serverCache.lastUpdate
     });
 });
