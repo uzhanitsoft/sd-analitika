@@ -16,7 +16,7 @@ app.use(cors());
 app.use(express.json());
 
 // Static fayllarni xizmat qilish
-app.use(express.static(path.join(__dirname)));
+app.use(express.static(path.join(__dirname, 'deploy'))); // deploy/ papkasidan serve qilish (app.js v66)
 
 // =============================================================================
 // рџљЂ SERVER-SIDE CACHE SYSTEM
