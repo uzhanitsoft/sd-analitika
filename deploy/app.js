@@ -2,7 +2,7 @@
  * Sales Doctor Analytics Dashboard
  * Main Application Logic with Real API Integration
  */
-console.log('📊 app.js v55 yuklandi! (loadKassaStats, loadRasxodStats, loadPrixodStats qo\'shildi)');
+console.log('📊 app.js v66 yuklandi! (stock Object.entries fix)');
 
 class SalesDoctorApp {
     constructor() {
