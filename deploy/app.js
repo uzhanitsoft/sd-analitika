@@ -2487,23 +2487,26 @@ class SalesDoctorApp {
             const stockData = await stockRes.json();
 
             const allProducts = Array.isArray(productsData?.result?.product) ? productsData.result.product : [];
-            const warehousesRaw = stockData?.result?.warehouse;
-            const warehouses = Array.isArray(warehousesRaw) ? warehousesRaw : [];
+            const warehouseRaw = stockData?.result?.warehouse;
 
             console.log('🏷️ Jami mahsulotlar (cache):', allProducts.length);
 
-            // Stock mapping
+            // Stock mapping — server {id: qty} object qaytaradi
             const stockMap = {};
-            warehouses.forEach(warehouse => {
-                const products = Array.isArray(warehouse.products) ? warehouse.products : [];
-                products.forEach(item => {
-                    const productId = item.SD_id;
-                    const quantity = parseFloat(item.quantity) || 0;
-                    if (productId && quantity > 0) {
-                        stockMap[productId] = (stockMap[productId] || 0) + quantity;
-                    }
+            if (warehouseRaw && typeof warehouseRaw === 'object' && !Array.isArray(warehouseRaw)) {
+                // Object format: { "d0_1": 126, "d0_2": 0, ... }
+                Object.entries(warehouseRaw).forEach(([id, qty]) => {
+                    const quantity = parseFloat(qty) || 0;
+                    if (quantity > 0) stockMap[id] = quantity;
                 });
-            });
+            } else if (Array.isArray(warehouseRaw)) {
+                // Array format (eski): [{products: [{SD_id, quantity}]}]
+                warehouseRaw.forEach(wh => {
+                    (wh.products || []).forEach(item => {
+                        if (item.SD_id) stockMap[item.SD_id] = (stockMap[item.SD_id] || 0) + (parseFloat(item.quantity) || 0);
+                    });
+                });
+            }
 
             console.log('📦 Stock map (cache):', Object.keys(stockMap).length, 'ta mahsulot');
 
@@ -2955,18 +2958,21 @@ class SalesDoctorApp {
             });
             console.log('📥 Prixod bo\'lgan mahsulotlar (cache):', purchasedProductIds.size);
 
-            // 2. Stock mapping
-            const warehousesRaw2 = stockData?.result?.warehouse;
-            const warehouses = Array.isArray(warehousesRaw2) ? warehousesRaw2 : [];
+            // 2. Stock mapping — server {id: qty} object qaytaradi
+            const warehouseRaw2 = stockData?.result?.warehouse;
             const stockMap = {};
-            warehouses.forEach(warehouse => {
-                const wProducts = Array.isArray(warehouse.products) ? warehouse.products : [];
-                wProducts.forEach(item => {
-                    const productId = item.SD_id;
-                    const quantity = parseFloat(item.quantity) || 0;
-                    stockMap[productId] = (stockMap[productId] || 0) + quantity;
+            if (warehouseRaw2 && typeof warehouseRaw2 === 'object' && !Array.isArray(warehouseRaw2)) {
+                Object.entries(warehouseRaw2).forEach(([id, qty]) => {
+                    const quantity = parseFloat(qty) || 0;
+                    if (quantity > 0) stockMap[id] = quantity;
                 });
-            });
+            } else if (Array.isArray(warehouseRaw2)) {
+                warehouseRaw2.forEach(wh => {
+                    (wh.products || []).forEach(item => {
+                        if (item.SD_id) stockMap[item.SD_id] = (stockMap[item.SD_id] || 0) + (parseFloat(item.quantity) || 0);
+                    });
+                });
+            }
 
             // 3. Mahsulot nomlari
             const products = (productsData.status && productsData.result?.product) ? productsData.result.product : [];
