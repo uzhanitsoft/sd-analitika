@@ -4,15 +4,131 @@ node_modules/
 .DS_Store
 Thumbs.db
 
-# Test va patch fayllar
+# Test fayllar (barcha formatlar)
 test_*.js
 test-*.js
-patch_*.js
-analyze_*.js
-check_*.js
-prod_app.js
 
-# Vaqtinchalik ma'lumot fayllar
+# Patch fayllar
+patch_*.js
+
+# Analyze fayllar
+analyze_*.js
+analyze-*.js
+
+# Check fayllar
+check_*.js
+check-*.js
+
+# Fix fayllar
+fix_*.js
+
+# Debug fayllar
+debug_*.js
+debug_*.html
+
+# Vaqtinchalik JSON natijalar
 shipper_*.json
 shipper_*.html
 result_*.json
+
+# Boshqa keraksiz fayllar
+prod_app.js
+add_rasxod_prixod.js
+add_rasxod_prixod2.js
+add_rasxod_prixod3.js
+supplier_methods.js
+restore_widgets.js
+restore_widgets2.js
+deep-analyze-api.js
+discover-api.js
+explore-supervisor.js
+fetch-all-payments.js
+final_fix.js
+find-all-methods.js
+find-all-statuses.js
+find-delivered.js
+find-kassaincome.js
+find-orders.js
+find-sales.js
+find-screenshot-clients.js
+find-srok-api.js
+fix_appjs_final.js
+fix_exports.js
+fix_now.js
+fix_payments.js
+fix_rasxod_category.js
+fix_rasxod_deploy.js
+fix_supplier_debts.js
+fresh-login.js
+full-analytics.js
+get-full-sales.js
+get-iroda-agents.js
+show-orders.js
+try-all.js
+read-excel.js
+patch_server.js
+patch_server2.js
+patch_shipper.js
+patch_shipper2.js
+patch_shipper3.js
+patch_stock.js
+patch_endpoint.js
+patch_fix_class.js
+patch_fix_class2.js
+patch_fix_class3.js
+patch_load_widget.js
+patch_supplier_modal.js
+test-all-methods.js
+test-api-parameters.js
+test-api.js
+test-balance-api.js
+test-balance-pagination.js
+test-consumption-api.js
+test-consumption-api2.js
+test-consumption-api3.js
+test-consumption-final.js
+test-consumption-pages.js
+test-consumption.js
+test-date-filter.js
+test-debt.js
+test-get-consumption.js
+test-payment-dates.js
+test-price-api.js
+test-status.js
+check-agents.js
+check-all-balances.js
+check-analytics.js
+check-api.js
+check-balance-detail.js
+check-balance-srok.js
+check-client-srok.js
+check-clients-balance.js
+check-cost-price.js
+check-data.js
+check-debt-correct.js
+check-debt.js
+check-docs.js
+check-dollar.js
+check-extended.js
+check-iroda-orders.js
+check-latest-data.js
+check-order-data.js
+check-order-fields.js
+check-ostatka-console.js
+check-ostatka.js
+check-owners.js
+check-payments-correct.js
+check-payments.js
+check-sposob.js
+check-users.js
+
+# Excel va katta HTML fayllar
+*.xlsx
+Sales Doctor Public API 2.html
+Sales Doctor Public API 2_files/
+kassaIncome_debug.html
+price_page.html
+shipper_page.html
+
+# IDE
+.vscode/
