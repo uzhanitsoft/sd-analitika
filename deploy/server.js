@@ -569,11 +569,20 @@ async function refreshCache() {
         serverCache.purchases = await fetchAllPaginated('getPurchase', 'warehouse', 500, 50);
         console.log(`   ✅ ${serverCache.purchases.length} ta prixod`);
 
-        // 6.5. Stock (ostatka)
+        // 6.5. Stock (ostatka) — warehouse array -> stockMap object
         console.log('📦 Stock yuklanmoqda...');
-        const stockRes = await apiRequest('getStock', { limit: 500 });
-        serverCache.stock = stockRes?.result?.warehouse || [];
-        console.log(`   ✅ ${serverCache.stock.length} ta sklad`);
+        const stockRes = await apiRequest('getStock', { limit: 10000 });
+        const warehouses = stockRes?.result?.warehouse || [];
+        const stockMap = {};
+        warehouses.forEach(wh => {
+            (wh.products || []).forEach(p => {
+                const id = p.SD_id;
+                if (!stockMap[id]) stockMap[id] = 0;
+                stockMap[id] += parseFloat(p.quantity) || 0;
+            });
+        });
+        serverCache.stock = stockMap;
+        console.log(`   ✅ ${Object.keys(stockMap).length} ta mahsulot (stock)`);
 
         // 7. Narx turlari
         console.log('💵 Narx turlari yuklanmoqda...');
