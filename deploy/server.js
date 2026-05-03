@@ -2429,6 +2429,20 @@ app.get('/', (req, res) => {
 // URL: /api/export/<nomi>
 // ============================================================
 
+// 🔍 DEBUG: Mahsulot raw fieldlarini ko'rish (packaging field nomini aniqlash uchun)
+app.get('/api/debug/product', (req, res) => {
+    if (!serverCache.products || serverCache.products.length === 0) {
+        return res.json({ error: 'Cache hali tayyor emas' });
+    }
+    // Birinchi mahsulotning barcha fieldlarini ko'rsatish
+    const sample = serverCache.products[0];
+    // Barcha field nomlarini va qiymatlarini qaytarish
+    res.json({
+        allKeys: Object.keys(sample),
+        fullObject: sample
+    });
+});
+
 // Qarzlar (Balans) — Power BI
 app.get('/api/export/balances', (req, res) => {
     if (!serverCache.balances) return res.json([]);
