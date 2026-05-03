@@ -2549,41 +2549,87 @@ app.get('/api/export/products', (req, res) => {
             });
         });
     } else if (typeof stockData === 'object') {
-        // Agar object shaklida bo'lsa {SD_id: qty}
         Object.entries(stockData).forEach(([id, qty]) => {
             stockMap[id] = parseFloat(qty) || 0;
         });
     }
 
-    // Catalog narxlardan sotish narxini olish
-    const catalogPrices = serverCache.catalogPrices?.productPrices || {};
-    const costPrices = serverCache.costPrices || {};
+    // Catalog narxlar va narx turlari
+    const catalogPrices   = serverCache.catalogPrices?.productPrices || {};
+    const priceTypeInfo   = serverCache.catalogPrices?.priceTypes    || {};
+    const costPrices      = serverCache.costPrices || {};
 
     const rows = serverCache.products.map(p => {
         const productId = p.SD_id || '';
-        // Narx: catalogdan eng katta sotish narxni olish
-        let price = 0;
-        const pricesForProduct = catalogPrices[productId];
-        if (pricesForProduct) {
-            Object.values(pricesForProduct).forEach(pr => {
-                const v = parseFloat(pr) || 0;
-                if (v > price) price = v;
-            });
-        }
-        if (price === 0 && costPrices[productId]) {
-            price = costPrices[productId].costPriceUZS || 0;
+
+        // === NARX TURLARI: har bir narx turi alohida column ===
+        const pricesForProduct = catalogPrices[productId] || {};
+        const narxTurlari = {};
+        Object.entries(pricesForProduct).forEach(([ptId, price]) => {
+            const ptName = priceTypeInfo[ptId]?.name || ptId;
+            narxTurlari[`narx_${ptName}`] = parseFloat(price) || 0;
+        });
+
+        // === KOL_V_BLOKE: Кол-во товаров в блоке ===
+        // SalesDoc API da bu maydon turli nomlar bilan kelishi mumkin
+        const kol_v_bloke = parseFloat(
+            p.countInPackage || p.count_in_package ||
+            p.itemsInPack    || p.items_in_pack    ||
+            p.packageSize    || p.package_size     ||
+            p.countInPack    || p.count_in_pack    ||
+            p.inPackage      || 0
+        ) || 0;
+
+        // === KOL_BLOK_V_KOROBKE: Кол-во блоков в коробке ===
+        const kol_blok_v_korobke = parseFloat(
+            p.packInBox      || p.pack_in_box      ||
+            p.blocksInBox    || p.blocks_in_box    ||
+            p.boxSize        || p.box_size         ||
+            p.packageInBox   || p.package_in_box   ||
+            p.boxCount       || 0
+        ) || 0;
+
+        // === TAN NARX ===
+        let tanNarx = 0;
+        if (costPrices[productId]) {
+            tanNarx = costPrices[productId].costPriceUZS || 0;
         }
 
         return {
-            id: productId,
-            category: p.category?.name || p.group?.name || '',
-            name: p.name || '',
-            price: Math.round(price * 100) / 100,
-            stock: stockMap[productId] || 0,
-            subcategory: p.subcategory?.name || '',
-            unit: p.unit?.name || '',
+            id:                productId,
+            name:              p.name || '',
+            category:          p.category?.name || p.group?.name || '',
+            subcategory:       p.subcategory?.name || '',
+            unit:              p.unit?.name || '',
+            stock:             stockMap[productId] || 0,
+            kol_v_bloke,
+            kol_blok_v_korobke,
+            tanNarx:           Math.round(tanNarx),
+            ...narxTurlari,      // Barcha narx turlari alohida column sifatida
         };
     });
+    res.json(rows);
+});
+
+// Narx turlari ro'yxati — Power BI (reference table)
+app.get('/api/export/price-types', (req, res) => {
+    const priceTypeInfo = serverCache.catalogPrices?.priceTypes || {};
+    if (Object.keys(priceTypeInfo).length === 0) {
+        // Pricetyp cache dan olish
+        const fallback = (serverCache.priceTypes || []).map(pt => ({
+            id:       pt.SD_id || '',
+            name:     pt.name  || '',
+            type:     pt.type  || '',
+            currency: pt.currency || '',
+        }));
+        return res.json(fallback);
+    }
+    const rows = Object.values(priceTypeInfo).map(pt => ({
+        id:       pt.id       || '',
+        name:     pt.name     || '',
+        type:     pt.type     || '',
+        currency: pt.currency || '',
+    }));
     res.json(rows);
 });
 
