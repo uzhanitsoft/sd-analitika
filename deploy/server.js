@@ -2434,11 +2434,56 @@ app.get('/api/debug/product', (req, res) => {
     if (!serverCache.products || serverCache.products.length === 0) {
         return res.json({ error: 'Cache hali tayyor emas' });
     }
-    // Birinchi mahsulotning barcha fieldlarini ko'rsatish
+
     const sample = serverCache.products[0];
-    // Barcha field nomlarini va qiymatlarini qaytarish
+    const productId = sample.SD_id || '';
+
+    // Catalog narxlar
+    const catalogPrices = serverCache.catalogPrices?.productPrices || {};
+    const priceTypeInfo = serverCache.catalogPrices?.priceTypes    || {};
+    const samplePrices  = catalogPrices[productId] || {};
+
+    // Narx turlari nomlarini ko'rsatish
+    const priceTypeNames = {};
+    Object.entries(samplePrices).forEach(([ptId, price]) => {
+        priceTypeNames[priceTypeInfo[ptId]?.name || ptId] = price;
+    });
+
+    // Packaging uchun mumkin bo'lgan field nomlar
+    const packagingCandidates = {};
+    const packFields = [
+        'countInPackage','count_in_package','itemsInPack','items_in_pack',
+        'packageSize','package_size','countInPack','count_in_pack','inPackage',
+        'packInBox','pack_in_box','blocksInBox','blocks_in_box','boxSize','box_size',
+        'packageInBox','package_in_box','boxCount','box_count',
+        'countBlock','countBox','block_count','kol_blok','kol_v_bloke',
+        'packQuantity','boxQuantity','unitInPack','unitInBox',
+        'minOpt','multiplicity','mul','multiply','step'
+    ];
+    packFields.forEach(f => {
+        if (sample[f] !== undefined) packagingCandidates[f] = sample[f];
+    });
+
     res.json({
+        // Umumiy ma'lumot
+        totalProducts:      serverCache.products.length,
+        totalCatalogPrices: Object.keys(catalogPrices).length,
+        totalPriceTypes:    Object.keys(priceTypeInfo).length,
+
+        // Birinchi mahsulot
+        sampleProductId:   productId,
+        sampleProductName: sample.name || '',
+
+        // Packaging field nomlar (topilganlar)
+        packagingCandidates,
+
+        // Narx turlari (shu mahsulot uchun)
+        priceTypeNames,
+
+        // Barcha field nomlar
         allKeys: Object.keys(sample),
+
+        // To'liq raw object
         fullObject: sample
     });
 });
