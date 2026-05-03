@@ -2570,6 +2570,33 @@ app.get('/api/export/purchases', (req, res) => {
     res.json(rows);
 });
 
+// Sotuvlar tafsilot (har bir mahsulot alohida qator) — Power BI
+app.get('/api/export/order-items', (req, res) => {
+    if (!serverCache.orders) return res.json([]);
+    const rows = [];
+    serverCache.orders.forEach(o => {
+        const orderDate = (o.dateCreate || o.dateDocument || o.date || '').substring(0, 10);
+        const status = parseInt(o.status) || 0;
+        const currency = o.paymentType?.SD_id === 'd0_4' ? 'USD' : 'UZS';
+        (o.orderProducts || o.detail || []).forEach(item => {
+            rows.push({
+                orderId: o.SD_id || o.order_id || '',
+                orderDate,
+                status,
+                clientId: o.client?.SD_id || '',
+                agentId: o.agent?.SD_id || '',
+                currency,
+                productId: item.product?.SD_id || item.SD_id || '',
+                productName: item.product?.name || item.name || '',
+                quantity: parseFloat(item.quantity) || 0,
+                price: parseFloat(item.price) || 0,
+                summa: parseFloat(item.summa) || parseFloat(item.amount) || 0,
+            });
+        });
+    });
+    res.json(rows);
+});
+
 // Rasxodlar (Xarajatlar) — Power BI
 app.get('/api/export/consumption', (req, res) => {
     if (!serverCache.consumption) return res.json([]);
