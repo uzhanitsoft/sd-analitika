@@ -2631,8 +2631,9 @@ app.get('/api/export/products', (req, res) => {
 
         // === KOL_V_BLOKE: Кол-во товаров в блоке ===
         // SalesDoc API da bu maydon turli nomlar bilan kelishi mumkin
+        // Debug: packQuantity = 1 (topildi!)
         const kol_v_bloke = parseFloat(
-            p.countInPackage || p.count_in_package ||
+            p.packQuantity   || p.countInPackage   || p.count_in_package ||
             p.itemsInPack    || p.items_in_pack    ||
             p.packageSize    || p.package_size     ||
             p.countInPack    || p.count_in_pack    ||
@@ -2645,7 +2646,7 @@ app.get('/api/export/products', (req, res) => {
             p.blocksInBox    || p.blocks_in_box    ||
             p.boxSize        || p.box_size         ||
             p.packageInBox   || p.package_in_box   ||
-            p.boxCount       || 0
+            p.volume         || p.boxCount         || 0
         ) || 0;
 
         // === TAN NARX ===
